@@ -1,3 +1,3 @@
 function myFunction() {
-  hello
+  hello = "Hello World!";
 }
