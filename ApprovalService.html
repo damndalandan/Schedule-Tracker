@@ -1,0 +1,398 @@
+<script>
+// ============================================================
+// ApprovalService.html — Approval Page Logic
+// Save this file as: ApprovalService.html in Apps Script
+// ============================================================
+
+var ApprovalService = (function() {
+
+  var _allTrips = [];
+
+  // ── LOAD ───────────────────────────────────────────────────
+  function load() {
+    if (!AppService.hasRole('Admin', 'Approver')) {
+      document.getElementById('page-approval').innerHTML =
+        '<div class="card" style="text-align:center;padding:40px;">' +
+          '<i class="fas fa-lock" style="font-size:32px;color:var(--text-dim);margin-bottom:12px;display:block;"></i>' +
+          '<div style="color:var(--text-muted);">You do not have access to this page.</div>' +
+        '</div>';
+      return;
+    }
+
+    _populateTripTypeFilter();
+    _fetchTrips();
+  }
+
+  function _populateTripTypeFilter() {
+    var appData = AppService.getAppData();
+    if (!appData) return;
+    var types = appData.settings['Trip Type'] || [];
+    var sel   = document.getElementById('apprFilterType');
+    if (!sel || sel.options.length > 1) return;
+    for (var i = 0; i < types.length; i++) {
+      var opt = document.createElement('option');
+      opt.value       = types[i];
+      opt.textContent = types[i];
+      sel.appendChild(opt);
+    }
+  }
+
+  function _fetchTrips() {
+    var tbody = document.getElementById('apprTableBody');
+    if (tbody) {
+      tbody.innerHTML = '<tr><td colspan="11" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>';
+    }
+
+    google.script.run
+      .withSuccessHandler(function(trips) {
+        _allTrips = trips;
+        applyFilter();
+
+        // Update sidebar approval badge
+        var pending = trips.filter(function(t) { return t['Status'] === 'Submitted'; }).length;
+        var badge   = document.getElementById('approvalBadge');
+        if (badge) {
+          badge.textContent = pending;
+          if (pending === 0) {
+            badge.classList.add('hidden');
+          } else {
+            badge.classList.remove('hidden');
+          }
+        }
+      })
+      .withFailureHandler(function() {
+        if (tbody) {
+          tbody.innerHTML = '<tr><td colspan="11" class="table-empty">Failed to load trips.</td></tr>';
+        }
+        AppService.showToast('Failed to load trips.', 'error');
+      })
+      .getTrips();
+  }
+
+  // ── FILTER ─────────────────────────────────────────────────
+  function applyFilter() {
+    var search = (document.getElementById('apprSearch')       ? document.getElementById('apprSearch').value       : '').toLowerCase();
+    var status = (document.getElementById('apprFilterStatus') ? document.getElementById('apprFilterStatus').value : 'Submitted');
+    var type   = (document.getElementById('apprFilterType')   ? document.getElementById('apprFilterType').value   : '');
+
+    var filtered = _allTrips.filter(function(t) {
+      var matchSearch = !search ||
+        (t['Trip ID']        || '').toLowerCase().indexOf(search) > -1 ||
+        (t['Requestor Name'] || '').toLowerCase().indexOf(search) > -1 ||
+        (t['Purpose']        || '').toLowerCase().indexOf(search) > -1 ||
+        (t['Plate Number']   || '').toLowerCase().indexOf(search) > -1;
+      var matchStatus = !status || t['Status'] === status;
+      var matchType   = !type   || t['Trip Type'] === type;
+      return matchSearch && matchStatus && matchType;
+    });
+
+    // Sort: submitted oldest first (most urgent on top), others newest first
+    filtered.sort(function(a, b) {
+      if (a['Status'] === 'Submitted' && b['Status'] === 'Submitted') {
+        return new Date(a['Request Date']) - new Date(b['Request Date']);
+      }
+      return new Date(b['Request Date']) - new Date(a['Request Date']);
+    });
+
+    _renderTable(filtered);
+  }
+
+  // ── RENDER TABLE ───────────────────────────────────────────
+  function _renderTable(trips) {
+    var tbody = document.getElementById('apprTableBody');
+    if (!tbody) return;
+
+    if (trips.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="11" class="table-empty">No trips found.</td></tr>';
+      return;
+    }
+
+    var rows = '';
+    for (var i = 0; i < trips.length; i++) {
+      var t      = trips[i];
+      var tId    = AppService.escapeHtml(t['Trip ID']);
+      var status = t['Status'];
+
+      // Action buttons — approve/reject only for Submitted
+      var actionBtns =
+        '<button class="btn btn-ghost btn-sm btn-icon" title="View Details" ' +
+          'onclick="ApprovalService.viewTrip(\'' + tId + '\')">' +
+          '<i class="fas fa-eye"></i></button>';
+
+      if (status === 'Submitted') {
+        actionBtns +=
+          '<button class="btn btn-sm" title="Approve" ' +
+            'style="background:rgba(34,197,94,0.15);color:var(--success);border:1px solid rgba(34,197,94,0.3);" ' +
+            'onclick="ApprovalService.approveTrip(\'' + tId + '\')">' +
+            '<i class="fas fa-check"></i> Approve</button>' +
+          '<button class="btn btn-sm" title="Reject" ' +
+            'style="background:rgba(239,68,68,0.15);color:var(--danger);border:1px solid rgba(239,68,68,0.3);" ' +
+            'onclick="ApprovalService.rejectTrip(\'' + tId + '\')">' +
+            '<i class="fas fa-xmark"></i> Reject</button>';
+      }
+
+      // Allow admin to cancel even from approval view
+      if (AppService.hasRole('Admin') &&
+          status !== 'Completed' && status !== 'Rejected' && status !== 'Cancelled') {
+        actionBtns +=
+          '<button class="btn btn-ghost btn-sm btn-icon" title="Cancel" style="color:var(--warning);" ' +
+            'onclick="ApprovalService.cancelTrip(\'' + tId + '\')">' +
+            '<i class="fas fa-ban"></i></button>';
+      }
+
+      var fromTo = AppService.escapeHtml(t['From Location'] || '—') +
+        ' <i class="fas fa-arrow-right" style="color:var(--text-dim);font-size:10px;"></i> ' +
+        AppService.escapeHtml(t['To Location'] || '—');
+
+      rows +=
+        '<tr>' +
+          '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">' + tId + '</span></td>' +
+          '<td style="font-size:12px;color:var(--text-muted);">' + AppService.formatDate(t['Request Date']) + '</td>' +
+          '<td>' + AppService.escapeHtml(t['Requestor Name'] || '—') + '</td>' +
+          '<td style="font-size:12px;">' + AppService.escapeHtml(t['Trip Type'] || '—') + '</td>' +
+          '<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+            AppService.escapeHtml(t['Purpose'] || '—') +
+          '</td>' +
+          '<td style="font-size:12px;white-space:nowrap;">' + fromTo + '</td>' +
+          '<td style="font-size:12px;color:var(--text-muted);">' + AppService.formatDate(t['Planned Start DateTime']) + '</td>' +
+          '<td style="font-size:12px;">' + AppService.escapeHtml(t['Plate Number'] || '—') + '</td>' +
+          '<td>' + AppService.escapeHtml(t['Driver Name'] || '—') + '</td>' +
+          '<td>' + AppService.statusBadge(status) + '</td>' +
+          '<td style="text-align:right;white-space:nowrap;">' +
+            '<div class="action-row" style="justify-content:flex-end;">' + actionBtns + '</div>' +
+          '</td>' +
+        '</tr>';
+    }
+
+    tbody.innerHTML = rows;
+  }
+
+  // ── VIEW TRIP ──────────────────────────────────────────────
+  function viewTrip(tripId) {
+    var t = _findTrip(tripId);
+    if (!t) return;
+
+    var body =
+      '<div class="section-title">Request Details</div>' +
+      '<div class="detail-grid">' +
+        _dItem('Trip ID',       '<span style="font-family:var(--font-mono);color:var(--accent);">' + AppService.escapeHtml(t['Trip ID']) + '</span>') +
+        _dItem('Status',        AppService.statusBadge(t['Status'])) +
+        _dItem('Request Date',  AppService.formatDateTime(t['Request Date'])) +
+        _dItem('Trip Type',     AppService.escapeHtml(t['Trip Type']  || '—')) +
+        _dItem('Requestor',     AppService.escapeHtml(t['Requestor Name'] || '—')) +
+        _dItem('Related JO',    AppService.escapeHtml(t['Related JO'] || '—')) +
+        '<div class="detail-item" style="grid-column:1/-1;">' +
+          '<div class="detail-label">Purpose</div>' +
+          '<div class="detail-value">' + AppService.escapeHtml(t['Purpose'] || '—') + '</div>' +
+        '</div>' +
+        _dItem('From',          AppService.escapeHtml(t['From Location'] || '—')) +
+        _dItem('To',            AppService.escapeHtml(t['To Location']   || '—')) +
+        _dItem('Planned Start', AppService.formatDateTime(t['Planned Start DateTime'])) +
+        _dItem('Planned End',   AppService.formatDateTime(t['Planned End DateTime'])) +
+      '</div>' +
+
+      '<div class="section-title" style="margin-top:18px;">Vehicle & Driver</div>' +
+      '<div class="detail-grid">' +
+        _dItem('Vehicle ID',   AppService.escapeHtml(t['Vehicle ID']   || '—')) +
+        _dItem('Plate Number', AppService.escapeHtml(t['Plate Number'] || '—')) +
+        _dItem('Driver',       AppService.escapeHtml(t['Driver Name']  || '—')) +
+      '</div>';
+
+    if (t['Status'] === 'Rejected' || t['Status'] === 'Cancelled') {
+      body +=
+        '<div class="section-title" style="margin-top:18px;">Reason</div>' +
+        '<div class="detail-grid">' +
+          _dItem('Approved By',      AppService.escapeHtml(t['Approved By']             || '—')) +
+          _dItem('Decision Date',    AppService.formatDateTime(t['Approval/Rejection Date'])) +
+          _dItem('Rejection Reason', AppService.escapeHtml(t['Rejection Reason']         || '—')) +
+          _dItem('Cancel Reason',    AppService.escapeHtml(t['Cancel Reason']            || '—')) +
+        '</div>';
+    }
+
+    var tId    = AppService.escapeHtml(t['Trip ID']);
+    var status = t['Status'];
+
+    var footer = '<button class="btn btn-ghost" onclick="AppService.closeModal()">Close</button>';
+
+    if (status === 'Submitted') {
+      footer +=
+        '<button class="btn btn-sm" ' +
+          'style="background:rgba(239,68,68,0.15);color:var(--danger);border:1px solid rgba(239,68,68,0.3);" ' +
+          'onclick="AppService.closeModal();ApprovalService.rejectTrip(\'' + tId + '\')">' +
+          '<i class="fas fa-xmark"></i> Reject</button>' +
+        '<button class="btn btn-success" ' +
+          'onclick="AppService.closeModal();ApprovalService.approveTrip(\'' + tId + '\')">' +
+          '<i class="fas fa-check"></i> Approve</button>';
+    }
+
+    AppService.openModal('Trip Details — ' + AppService.escapeHtml(t['Trip ID']), body, footer, true);
+  }
+
+  // ── APPROVE ────────────────────────────────────────────────
+  function approveTrip(tripId) {
+    var user = AppService.getCurrentUser();
+
+    AppService.confirm(
+      'Approve trip <strong>' + AppService.escapeHtml(tripId) + '</strong>?<br>' +
+      '<span style="font-size:12px;color:var(--text-muted);">This will allow the trip to proceed.</span>',
+      function() {
+        AppService.showLoader('Approving trip...');
+        google.script.run
+          .withSuccessHandler(function(result) {
+            AppService.hideLoader();
+            if (result.success) {
+              AppService.showToast(result.message, 'success');
+              _fetchTrips();
+            } else {
+              AppService.showToast(result.message, 'error');
+            }
+          })
+          .withFailureHandler(function(err) {
+            AppService.hideLoader();
+            AppService.showToast('Error: ' + err.message, 'error');
+          })
+          .saveTrip({
+            'Trip ID':     tripId,
+            'Status':      'Approved',
+            'Approved By': user['Employee Name'],
+            'Updated By':  user['Employee Name']
+          });
+      },
+      null, false
+    );
+  }
+
+  // ── REJECT ─────────────────────────────────────────────────
+  function rejectTrip(tripId) {
+    var body =
+      '<p style="color:var(--text-muted);margin-bottom:16px;font-size:13px;">Please provide a reason for rejection. This will be visible to the requestor.</p>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Rejection Reason <span class="req">*</span></label>' +
+        '<textarea class="form-control" id="rejectReasonInput" rows="3" ' +
+          'placeholder="e.g. Vehicle not available on this date, incomplete details..."></textarea>' +
+      '</div>';
+
+    var footer =
+      '<button class="btn btn-ghost" onclick="AppService.closeModal()">Back</button>' +
+      '<button class="btn btn-danger" onclick="ApprovalService.confirmReject(\'' + AppService.escapeHtml(tripId) + '\')">' +
+        '<i class="fas fa-xmark"></i> Confirm Reject' +
+      '</button>';
+
+    AppService.openModal('Reject Trip — ' + AppService.escapeHtml(tripId), body, footer);
+  }
+
+  function confirmReject(tripId) {
+    var reasonEl = document.getElementById('rejectReasonInput');
+    if (!reasonEl || !reasonEl.value.trim()) {
+      AppService.showToast('Rejection reason is required.', 'error');
+      return;
+    }
+
+    var user = AppService.getCurrentUser();
+
+    AppService.showLoader('Rejecting trip...');
+    google.script.run
+      .withSuccessHandler(function(result) {
+        AppService.hideLoader();
+        AppService.closeModal();
+        if (result.success) {
+          AppService.showToast(result.message, 'success');
+          _fetchTrips();
+        } else {
+          AppService.showToast(result.message, 'error');
+        }
+      })
+      .withFailureHandler(function(err) {
+        AppService.hideLoader();
+        AppService.showToast('Error: ' + err.message, 'error');
+      })
+      .saveTrip({
+        'Trip ID':          tripId,
+        'Status':           'Rejected',
+        'Rejection Reason': reasonEl.value.trim(),
+        'Approved By':      user['Employee Name'],
+        'Updated By':       user['Employee Name']
+      });
+  }
+
+  // ── CANCEL ─────────────────────────────────────────────────
+  function cancelTrip(tripId) {
+    var body =
+      '<p style="color:var(--text-muted);margin-bottom:16px;font-size:13px;">Please provide a reason for cancellation.</p>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Cancel Reason <span class="req">*</span></label>' +
+        '<textarea class="form-control" id="apprCancelReasonInput" rows="3" ' +
+          'placeholder="Reason for cancelling this trip..."></textarea>' +
+      '</div>';
+
+    var footer =
+      '<button class="btn btn-ghost" onclick="AppService.closeModal()">Back</button>' +
+      '<button class="btn btn-warning" onclick="ApprovalService.confirmCancel(\'' + AppService.escapeHtml(tripId) + '\')">' +
+        '<i class="fas fa-ban"></i> Confirm Cancel' +
+      '</button>';
+
+    AppService.openModal('Cancel Trip — ' + AppService.escapeHtml(tripId), body, footer);
+  }
+
+  function confirmCancel(tripId) {
+    var reasonEl = document.getElementById('apprCancelReasonInput');
+    if (!reasonEl || !reasonEl.value.trim()) {
+      AppService.showToast('Cancel reason is required.', 'error');
+      return;
+    }
+
+    var user = AppService.getCurrentUser();
+
+    AppService.showLoader('Cancelling trip...');
+    google.script.run
+      .withSuccessHandler(function(result) {
+        AppService.hideLoader();
+        AppService.closeModal();
+        if (result.success) {
+          AppService.showToast(result.message, 'success');
+          _fetchTrips();
+        } else {
+          AppService.showToast(result.message, 'error');
+        }
+      })
+      .withFailureHandler(function(err) {
+        AppService.hideLoader();
+        AppService.showToast('Error: ' + err.message, 'error');
+      })
+      .saveTrip({
+        'Trip ID':       tripId,
+        'Status':        'Cancelled',
+        'Cancel Reason': reasonEl.value.trim(),
+        'Updated By':    user['Employee Name']
+      });
+  }
+
+  // ── HELPERS ─────────────────────────────────────────────────
+  function _findTrip(tripId) {
+    for (var i = 0; i < _allTrips.length; i++) {
+      if (_allTrips[i]['Trip ID'] === tripId) return _allTrips[i];
+    }
+    return null;
+  }
+
+  function _dItem(label, value) {
+    return '<div class="detail-item">' +
+      '<div class="detail-label">' + label + '</div>' +
+      '<div class="detail-value">'  + value + '</div>' +
+    '</div>';
+  }
+
+  // ── PUBLIC ──────────────────────────────────────────────────
+  return {
+    load          : load,
+    applyFilter   : applyFilter,
+    viewTrip      : viewTrip,
+    approveTrip   : approveTrip,
+    rejectTrip    : rejectTrip,
+    confirmReject : confirmReject,
+    cancelTrip    : cancelTrip,
+    confirmCancel : confirmCancel
+  };
+
+})();
+</script>
