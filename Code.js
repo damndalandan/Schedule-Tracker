@@ -10,7 +10,7 @@ const SHEET_RENEWALS   = 'Renewal Alerts';
 const SHEET_EMPLOYEES  = 'Employees'; // local fallback; replace with IMPORTRANGE if needed
 
 // Replace with your employee sheet ID when ready
-const EMPLOYEE_SHEET_ID = 'YOUR_EMPLOYEE_SHEET_ID_HERE';
+const EMPLOYEE_SHEET_ID = '1HigaSfRMDBEUbDGlSfA8L2foDTO4D_DShhd3QCL5tw4';
 
 // ============================================================
 // WEB APP ENTRY POINTS
