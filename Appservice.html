@@ -1,16 +1,15 @@
 <script>
 // ============================================================
-// AppService.js — Core Application Service
-// Handles: session, navigation, modal, toast, loader, helpers
+// AppService.html — Core Application Service
+// Save this file as: AppService.html in Apps Script
 // ============================================================
 
-const AppService = (() => {
+var AppService = (function() {
 
   // ── STATE ──────────────────────────────────────────────────
-  let _currentUser  = null;
-  let _appData      = null;   // { employees, vehicles, settings }
-  let _currentPage  = null;
-  let _sidebarOpen  = true;
+  var _currentUser = null;
+  var _appData     = null;
+  var _currentPage = null;
 
   // ── INIT ───────────────────────────────────────────────────
   function init() {
@@ -20,29 +19,34 @@ const AppService = (() => {
   }
 
   function _updateTopbarDate() {
-    const el = document.getElementById('topbarDate');
-    if (el) el.textContent = new Date().toLocaleDateString('en-PH', {
-      weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'
-    });
+    var el = document.getElementById('topbarDate');
+    if (el) {
+      el.textContent = new Date().toLocaleDateString('en-PH', {
+        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'
+      });
+    }
   }
 
   // ── SPLASH / LOGIN ─────────────────────────────────────────
   function _loadEmployeesForSplash() {
     showLoader('Loading...');
     google.script.run
-      .withSuccessHandler(data => {
+      .withSuccessHandler(function(data) {
         hideLoader();
-        if (!data.success) { showToast('Failed to load employee data.', 'error'); return; }
+        if (!data.success) {
+          showToast('Failed to load employee data.', 'error');
+          return;
+        }
         _appData = data;
-        const sel = document.getElementById('userSelect');
-        data.employees.forEach(emp => {
-          const opt = document.createElement('option');
-          opt.value = emp['Employee ID'];
-          opt.textContent = `${emp['Employee Name']} (${emp['Role']})`;
+        var sel = document.getElementById('userSelect');
+        data.employees.forEach(function(emp) {
+          var opt = document.createElement('option');
+          opt.value       = emp['Employee ID'];
+          opt.textContent = emp['Employee Name'] + ' (' + emp['Role'] + ')';
           sel.appendChild(opt);
         });
       })
-      .withFailureHandler(err => {
+      .withFailureHandler(function(err) {
         hideLoader();
         showToast('Connection error: ' + err.message, 'error');
       })
@@ -50,13 +54,26 @@ const AppService = (() => {
   }
 
   function loginUser() {
-    const sel = document.getElementById('userSelect');
-    const err = document.getElementById('splashError');
-    if (!sel.value) { err.classList.remove('hidden'); return; }
+    var sel = document.getElementById('userSelect');
+    var err = document.getElementById('splashError');
+    if (!sel.value) {
+      err.classList.remove('hidden');
+      return;
+    }
     err.classList.add('hidden');
 
-    const emp = _appData.employees.find(e => String(e['Employee ID']) === String(sel.value));
-    if (!emp) { showToast('Employee not found.', 'error'); return; }
+    var emp = null;
+    for (var i = 0; i < _appData.employees.length; i++) {
+      if (String(_appData.employees[i]['Employee ID']) === String(sel.value)) {
+        emp = _appData.employees[i];
+        break;
+      }
+    }
+
+    if (!emp) {
+      showToast('Employee not found.', 'error');
+      return;
+    }
 
     _currentUser = emp;
     _renderUserUI();
@@ -75,9 +92,13 @@ const AppService = (() => {
   }
 
   function _renderUserUI() {
-    const name   = _currentUser['Employee Name'] || '?';
-    const role   = _currentUser['Role'] || '—';
-    const initials = name.split(' ').map(w => w[0]).join('').substring(0,2).toUpperCase();
+    var name    = _currentUser['Employee Name'] || '?';
+    var role    = _currentUser['Role']          || '—';
+    var words   = name.split(' ');
+    var initials = '';
+    for (var i = 0; i < Math.min(words.length, 2); i++) {
+      if (words[i]) initials += words[i][0].toUpperCase();
+    }
 
     document.getElementById('sidebarAvatar').textContent   = initials;
     document.getElementById('sidebarUserName').textContent = name;
@@ -87,41 +108,51 @@ const AppService = (() => {
   }
 
   function _applyRoleVisibility() {
-    const role = _currentUser['Role'];
-    document.querySelectorAll('.nav-item-role').forEach(el => {
-      const roles = (el.dataset.roles || '').split(',').map(r => r.trim());
-      el.style.display = roles.includes(role) ? '' : 'none';
-    });
+    var role  = _currentUser['Role'];
+    var items = document.querySelectorAll('.nav-item-role');
+    for (var i = 0; i < items.length; i++) {
+      var roles = (items[i].dataset.roles || '').split(',');
+      var found = false;
+      for (var j = 0; j < roles.length; j++) {
+        if (roles[j].trim() === role) { found = true; break; }
+      }
+      items[i].style.display = found ? '' : 'none';
+    }
   }
 
-  function getCurrentUser()  { return _currentUser; }
-  function getAppData()      { return _appData; }
-  function refreshAppData()  {
-    return new Promise((resolve, reject) => {
-      google.script.run
-        .withSuccessHandler(data => { if (data.success) _appData = data; resolve(data); })
-        .withFailureHandler(reject)
-        .getAppData();
-    });
+  function getCurrentUser() { return _currentUser; }
+  function getAppData()     { return _appData; }
+
+  function refreshAppData() {
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (data.success) _appData = data;
+      })
+      .withFailureHandler(function() {})
+      .getAppData();
   }
 
   // ── NAVIGATION ─────────────────────────────────────────────
   function navigate(page) {
-    // Hide all pages
-    document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+    var pages = document.querySelectorAll('.page');
+    for (var i = 0; i < pages.length; i++) {
+      pages[i].classList.add('hidden');
+    }
 
-    // Show target page
-    const target = document.getElementById(`page-${page}`);
+    var target = document.getElementById('page-' + page);
     if (!target) return;
     target.classList.remove('hidden');
 
-    // Update nav active state
-    document.querySelectorAll('.nav-item').forEach(el => {
-      el.classList.toggle('active', el.dataset.page === page);
-    });
+    var navItems = document.querySelectorAll('.nav-item');
+    for (var j = 0; j < navItems.length; j++) {
+      if (navItems[j].dataset.page === page) {
+        navItems[j].classList.add('active');
+      } else {
+        navItems[j].classList.remove('active');
+      }
+    }
 
-    // Update breadcrumb
-    const titles = {
+    var titles = {
       dashboard:     'Dashboard',
       trips:         'Trip Requests',
       approval:      'Approval',
@@ -130,22 +161,19 @@ const AppService = (() => {
       renewalAlerts: 'Renewal Alerts',
       reports:       'Reports'
     };
-    const titleEl = document.getElementById('pageTitle');
+    var titleEl = document.getElementById('pageTitle');
     if (titleEl) titleEl.textContent = titles[page] || page;
 
     _currentPage = page;
 
-    // Fire page-specific load functions
-    const loaders = {
-      dashboard:     () => typeof DashboardService !== 'undefined' && DashboardService.load(),
-      trips:         () => typeof TripsService     !== 'undefined' && TripsService.load(),
-      approval:      () => typeof ApprovalService  !== 'undefined' && ApprovalService.load(),
-      completion:    () => typeof CompletionService !== 'undefined' && CompletionService.load(),
-      vehicles:      () => typeof VehiclesService  !== 'undefined' && VehiclesService.load(),
-      renewalAlerts: () => typeof RenewalAlertsService !== 'undefined' && RenewalAlertsService.load(),
-      reports:       () => typeof ReportsService   !== 'undefined' && ReportsService.load(),
-    };
-    if (loaders[page]) loaders[page]();
+    // Fire page load functions
+    if (page === 'dashboard'     && typeof DashboardService     !== 'undefined') DashboardService.load();
+    if (page === 'trips'         && typeof TripsService         !== 'undefined') TripsService.load();
+    if (page === 'approval'      && typeof ApprovalService      !== 'undefined') ApprovalService.load();
+    if (page === 'completion'    && typeof CompletionService    !== 'undefined') CompletionService.load();
+    if (page === 'vehicles'      && typeof VehiclesService      !== 'undefined') VehiclesService.load();
+    if (page === 'renewalAlerts' && typeof RenewalAlertsService !== 'undefined') RenewalAlertsService.load();
+    if (page === 'reports'       && typeof ReportsService       !== 'undefined') ReportsService.load();
 
     // Close sidebar on mobile
     if (window.innerWidth <= 768) {
@@ -155,18 +183,20 @@ const AppService = (() => {
 
   // ── SIDEBAR ─────────────────────────────────────────────────
   function toggleSidebar() {
-    const sb = document.getElementById('sidebar');
-    sb.classList.toggle('collapsed');
-    _sidebarOpen = !sb.classList.contains('collapsed');
+    document.getElementById('sidebar').classList.toggle('collapsed');
   }
 
   // ── MODAL ───────────────────────────────────────────────────
-  function openModal(title, bodyHtml, footerHtml, large = false) {
+  function openModal(title, bodyHtml, footerHtml, large) {
     document.getElementById('modalTitle').textContent  = title;
     document.getElementById('modalBody').innerHTML     = bodyHtml;
     document.getElementById('modalFooter').innerHTML   = footerHtml || '';
-    const box = document.getElementById('modalBox');
-    box.classList.toggle('modal-lg', large);
+    var box = document.getElementById('modalBox');
+    if (large) {
+      box.classList.add('modal-lg');
+    } else {
+      box.classList.remove('modal-lg');
+    }
     document.getElementById('globalModal').classList.remove('hidden');
   }
 
@@ -176,31 +206,36 @@ const AppService = (() => {
     document.getElementById('modalFooter').innerHTML = '';
   }
 
-  // Close modal on overlay click
-  document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('globalModal').addEventListener('click', function(e) {
-      if (e.target === this) closeModal();
-    });
-    init();
-  });
-
   // ── TOAST ───────────────────────────────────────────────────
-  function showToast(message, type = 'info', duration = 3500) {
-    const icons = { success: 'fa-circle-check', error: 'fa-circle-xmark', warning: 'fa-triangle-exclamation', info: 'fa-circle-info' };
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type === 'error' ? 'error' : type}`;
-    toast.innerHTML = `<i class="fas ${icons[type] || icons.info} toast-icon"></i><span>${message}</span>`;
+  function showToast(message, type, duration) {
+    type     = type     || 'info';
+    duration = duration || 3500;
+
+    var icons = {
+      success: 'fa-circle-check',
+      error:   'fa-circle-xmark',
+      warning: 'fa-triangle-exclamation',
+      info:    'fa-circle-info'
+    };
+
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-' + (type === 'error' ? 'error' : type);
+    toast.innerHTML =
+      '<i class="fas ' + (icons[type] || icons.info) + ' toast-icon"></i>' +
+      '<span>' + message + '</span>';
+
     document.getElementById('toastContainer').appendChild(toast);
-    setTimeout(() => {
-      toast.style.opacity = '0';
+
+    setTimeout(function() {
+      toast.style.opacity    = '0';
       toast.style.transition = 'opacity 0.3s';
-      setTimeout(() => toast.remove(), 300);
+      setTimeout(function() { toast.remove(); }, 300);
     }, duration);
   }
 
   // ── LOADER ──────────────────────────────────────────────────
-  function showLoader(text = 'Loading...') {
-    document.getElementById('loaderText').textContent = text;
+  function showLoader(text) {
+    document.getElementById('loaderText').textContent = text || 'Loading...';
     document.getElementById('globalLoader').classList.remove('hidden');
   }
 
@@ -208,128 +243,168 @@ const AppService = (() => {
     document.getElementById('globalLoader').classList.add('hidden');
   }
 
-  // ── CONFIRM DIALOG ───────────────────────────────────────────
-  function confirm(message, onConfirm, onCancel, danger = true) {
-    const body = `<p style="color:var(--text-muted);font-size:14px;line-height:1.6;">${message}</p>`;
-    const footer = `
-      <button class="btn btn-ghost" onclick="AppService.closeModal()">Cancel</button>
-      <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" id="confirmOkBtn">Confirm</button>
-    `;
+  // ── CONFIRM ─────────────────────────────────────────────────
+  function confirm(message, onConfirm, onCancel, danger) {
+    var isDanger = (danger !== false);
+    var body     = '<p style="color:var(--text-muted);font-size:14px;line-height:1.6;">' + message + '</p>';
+    var footer   =
+      '<button class="btn btn-ghost" onclick="AppService.closeModal()">Cancel</button>' +
+      '<button class="btn ' + (isDanger ? 'btn-danger' : 'btn-primary') + '" id="confirmOkBtn">Confirm</button>';
+
     openModal('Confirm Action', body, footer);
-    setTimeout(() => {
-      const btn = document.getElementById('confirmOkBtn');
-      if (btn) btn.addEventListener('click', () => { closeModal(); if (onConfirm) onConfirm(); });
+
+    setTimeout(function() {
+      var btn = document.getElementById('confirmOkBtn');
+      if (btn) {
+        btn.addEventListener('click', function() {
+          closeModal();
+          if (onConfirm) onConfirm();
+        });
+      }
     }, 50);
   }
 
   // ── HELPERS ─────────────────────────────────────────────────
   function formatDate(val) {
     if (!val) return '—';
-    const d = new Date(val);
-    if (isNaN(d)) return val;
-    return d.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
+    var d = new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    return d.toLocaleDateString('en-PH', {
+      year: 'numeric', month: 'short', day: 'numeric'
+    });
   }
 
   function formatDateTime(val) {
     if (!val) return '—';
-    const d = new Date(val);
-    if (isNaN(d)) return val;
-    return d.toLocaleString('en-PH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    var d = new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    return d.toLocaleString('en-PH', {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
   }
 
   function statusBadge(status) {
     if (!status) return '—';
-    const map = {
-      'Draft':      'badge-draft',
-      'Submitted':  'badge-submitted',
-      'Approved':   'badge-approved',
-      'Rejected':   'badge-rejected',
-      'Cancelled':  'badge-cancelled',
-      'Completed':  'badge-completed',
+    var map = {
+      'Draft':     'badge-draft',
+      'Submitted': 'badge-submitted',
+      'Approved':  'badge-approved',
+      'Rejected':  'badge-rejected',
+      'Cancelled': 'badge-cancelled',
+      'Completed': 'badge-completed'
     };
-    return `<span class="badge ${map[status] || 'badge-draft'}">${status}</span>`;
+    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + status + '</span>';
   }
 
   function vehicleStatusBadge(status) {
     if (!status) return '—';
-    const map = {
+    var map = {
       'Active':       'badge-active',
       'Under Repair': 'badge-repair',
-      'Inactive':     'badge-inactive',
+      'Inactive':     'badge-inactive'
     };
-    return `<span class="badge ${map[status] || 'badge-draft'}">${status}</span>`;
+    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + status + '</span>';
   }
 
   function alertBadge(status) {
     if (!status) return '—';
-    const map = {
+    var map = {
       'OK':             'badge-ok',
       'Due in 30 Days': 'badge-due',
-      'Expired':        'badge-expired',
+      'Expired':        'badge-expired'
     };
-    return `<span class="badge ${map[status] || 'badge-draft'}">${status}</span>`;
+    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + status + '</span>';
   }
 
-  function buildOptions(arr, selectedVal = '', placeholder = '— Select —') {
-    let html = `<option value="">${placeholder}</option>`;
-    arr.forEach(item => {
-      const selected = String(item.value || item) === String(selectedVal) ? 'selected' : '';
-      const label = item.label || item.value || item;
-      const val   = item.value !== undefined ? item.value : item;
-      html += `<option value="${val}" ${selected}>${label}</option>`;
-    });
+  function buildOptions(arr, selectedVal, placeholder) {
+    placeholder = placeholder || '— Select —';
+    var html = '<option value="">' + placeholder + '</option>';
+    for (var i = 0; i < arr.length; i++) {
+      var item     = arr[i];
+      var val      = (item.value !== undefined) ? item.value : item;
+      var label    = item.label || item.value || item;
+      var selected = String(val) === String(selectedVal || '') ? ' selected' : '';
+      html += '<option value="' + escapeHtml(String(val)) + '"' + selected + '>' + escapeHtml(String(label)) + '</option>';
+    }
     return html;
   }
 
-  function buildEmployeeOptions(employees, selectedId = '', roleFiler = null) {
-    let list = roleFiler ? employees.filter(e => e['Role'] === roleFiler) : employees;
-    return buildOptions(list.map(e => ({ value: e['Employee ID'], label: `${e['Employee Name']}` })), selectedId);
+  function buildEmployeeOptions(employees, selectedId, roleFilter) {
+    var list = roleFilter
+      ? employees.filter(function(e) { return e['Role'] === roleFilter; })
+      : employees;
+    return buildOptions(
+      list.map(function(e) { return { value: e['Employee ID'], label: e['Employee Name'] }; }),
+      selectedId
+    );
   }
 
-  function buildVehicleOptions(vehicles, selectedId = '') {
-    return buildOptions(vehicles.map(v => ({ value: v['Vehicle ID'], label: `${v['Plate Number']} — ${v['Brand/Model'] || v['Vehicle Type']}` })), selectedId);
+  function buildVehicleOptions(vehicles, selectedId) {
+    return buildOptions(
+      vehicles.map(function(v) {
+        return {
+          value: v['Vehicle ID'],
+          label: v['Plate Number'] + ' — ' + (v['Brand/Model'] || v['Vehicle Type'])
+        };
+      }),
+      selectedId
+    );
   }
 
-  function hasRole(...roles) {
+  function hasRole() {
     if (!_currentUser) return false;
-    return roles.includes(_currentUser['Role']);
+    for (var i = 0; i < arguments.length; i++) {
+      if (_currentUser['Role'] === arguments[i]) return true;
+    }
+    return false;
   }
 
   function escapeHtml(str) {
     if (!str) return '';
     return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/&/g,  '&amp;')
+      .replace(/</g,  '&lt;')
+      .replace(/>/g,  '&gt;')
+      .replace(/"/g,  '&quot;')
+      .replace(/'/g,  '&#39;');
   }
+
+  // ── BOOT ────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', function() {
+    // Close modal on overlay click
+    document.getElementById('globalModal').addEventListener('click', function(e) {
+      if (e.target === this) closeModal();
+    });
+    init();
+  });
 
   // ── PUBLIC API ───────────────────────────────────────────────
   return {
-    init,
-    loginUser,
-    logout,
-    getCurrentUser,
-    getAppData,
-    refreshAppData,
-    navigate,
-    toggleSidebar,
-    openModal,
-    closeModal,
-    confirm,
-    showToast,
-    showLoader,
-    hideLoader,
-    formatDate,
-    formatDateTime,
-    statusBadge,
-    vehicleStatusBadge,
-    alertBadge,
-    buildOptions,
-    buildEmployeeOptions,
-    buildVehicleOptions,
-    hasRole,
-    escapeHtml
+    init           : init,
+    loginUser      : loginUser,
+    logout         : logout,
+    getCurrentUser : getCurrentUser,
+    getAppData     : getAppData,
+    refreshAppData : refreshAppData,
+    navigate       : navigate,
+    toggleSidebar  : toggleSidebar,
+    openModal      : openModal,
+    closeModal     : closeModal,
+    confirm        : confirm,
+    showToast      : showToast,
+    showLoader     : showLoader,
+    hideLoader     : hideLoader,
+    formatDate     : formatDate,
+    formatDateTime : formatDateTime,
+    statusBadge    : statusBadge,
+    vehicleStatusBadge : vehicleStatusBadge,
+    alertBadge     : alertBadge,
+    buildOptions   : buildOptions,
+    buildEmployeeOptions : buildEmployeeOptions,
+    buildVehicleOptions  : buildVehicleOptions,
+    hasRole        : hasRole,
+    escapeHtml     : escapeHtml
   };
 
 })();
