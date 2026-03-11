@@ -1,0 +1,126 @@
+<!-- ── DASHBOARD PAGE ──────────────────────────────────────── -->
+<div class="page-header">
+  <div>
+    <div class="page-header-title">Dashboard</div>
+    <div class="page-header-sub">Welcome back, <span id="dashWelcomeName">—</span></div>
+  </div>
+  <button class="btn btn-ghost btn-sm" onclick="DashboardService.load()">
+    <i class="fas fa-rotate-right"></i> Refresh
+  </button>
+</div>
+
+<!-- STAT CARDS -->
+<div class="stats-grid" id="dashStats">
+  <div class="stat-card">
+    <div class="stat-icon blue"><i class="fas fa-route"></i></div>
+    <div class="stat-label">Total Trips</div>
+    <div class="stat-value accent" id="dashTotalTrips">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon yellow"><i class="fas fa-clock"></i></div>
+    <div class="stat-label">Pending Approval</div>
+    <div class="stat-value warning" id="dashPending">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon green"><i class="fas fa-circle-check"></i></div>
+    <div class="stat-label">Completed Trips</div>
+    <div class="stat-value success" id="dashCompleted">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon red"><i class="fas fa-bell"></i></div>
+    <div class="stat-label">Renewal Alerts</div>
+    <div class="stat-value danger" id="dashAlerts">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon blue"><i class="fas fa-car"></i></div>
+    <div class="stat-label">Active Vehicles</div>
+    <div class="stat-value accent" id="dashVehicles">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon yellow"><i class="fas fa-flag-checkered"></i></div>
+    <div class="stat-label">Approved / In Transit</div>
+    <div class="stat-value warning" id="dashApproved">—</div>
+  </div>
+</div>
+
+<!-- TWO COLUMN ROW -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;" class="dash-grid">
+
+  <!-- RECENT TRIPS -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title"><i class="fas fa-route"></i> Recent Trips</div>
+      <button class="btn btn-ghost btn-sm" onclick="AppService.navigate('trips')">
+        View All <i class="fas fa-arrow-right"></i>
+      </button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Trip ID</th>
+            <th>Requestor</th>
+            <th>Purpose</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="dashRecentTrips">
+          <tr><td colspan="4" class="table-empty">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- PENDING APPROVALS -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title"><i class="fas fa-clipboard-check"></i> Pending Approvals</div>
+      <button class="btn btn-ghost btn-sm" onclick="AppService.navigate('approval')">
+        View All <i class="fas fa-arrow-right"></i>
+      </button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Trip ID</th>
+            <th>Requestor</th>
+            <th>Trip Type</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody id="dashPendingList">
+          <tr><td colspan="4" class="table-empty">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- RENEWAL ALERTS SUMMARY -->
+<div class="card" style="margin-top:20px;">
+  <div class="card-header">
+    <div class="card-title"><i class="fas fa-bell"></i> Renewal Alerts Summary</div>
+    <button class="btn btn-ghost btn-sm" onclick="AppService.navigate('renewalAlerts')">
+      View All <i class="fas fa-arrow-right"></i>
+    </button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Vehicle ID</th>
+          <th>Plate Number</th>
+          <th>Document</th>
+          <th>Expiry Date</th>
+          <th>Days Left</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="dashRenewalList">
+        <tr><td colspan="6" class="table-empty">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>

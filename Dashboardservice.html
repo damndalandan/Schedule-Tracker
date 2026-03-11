@@ -1,0 +1,198 @@
+<script>
+// ============================================================
+// DashboardService.js — Dashboard Page Logic
+// ============================================================
+
+const DashboardService = (() => {
+
+  // ── LOAD ───────────────────────────────────────────────────
+  function load() {
+    const user = AppService.getCurrentUser();
+    if (!user) return;
+
+    // Welcome name
+    const nameEl = document.getElementById('dashWelcomeName');
+    if (nameEl) nameEl.textContent = user['Employee Name'] || '—';
+
+    _loadStats();
+    _loadRecentTrips();
+    _loadPendingApprovals();
+    _loadRenewalAlerts();
+  }
+
+  // ── STATS ──────────────────────────────────────────────────
+  function _loadStats() {
+    google.script.run
+      .withSuccessHandler(data => {
+        _renderStats(data);
+      })
+      .withFailureHandler(err => {
+        AppService.showToast('Failed to load dashboard stats.', 'error');
+      })
+      .getTrips();
+  }
+
+  function _renderStats(trips) {
+    const appData = AppService.getAppData();
+
+    const total     = trips.length;
+    const pending   = trips.filter(t => t['Status'] === 'Submitted').length;
+    const completed = trips.filter(t => t['Status'] === 'Completed').length;
+    const approved  = trips.filter(t => t['Status'] === 'Approved').length;
+    const vehicles  = appData ? appData.vehicles.length : 0;
+
+    _set('dashTotalTrips', total);
+    _set('dashPending',    pending);
+    _set('dashCompleted',  completed);
+    _set('dashApproved',   approved);
+    _set('dashVehicles',   vehicles);
+
+    // Update sidebar badge
+    const badge = document.getElementById('approvalBadge');
+    if (badge) {
+      badge.textContent = pending;
+      badge.classList.toggle('hidden', pending === 0);
+    }
+  }
+
+  function _set(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  }
+
+  // ── RECENT TRIPS ───────────────────────────────────────────
+  function _loadRecentTrips() {
+    google.script.run
+      .withSuccessHandler(trips => {
+        const tbody = document.getElementById('dashRecentTrips');
+        if (!tbody) return;
+
+        // Sort by Request Date descending, take last 6
+        const sorted = trips
+          .filter(t => t['Trip ID'])
+          .sort((a, b) => new Date(b['Request Date']) - new Date(a['Request Date']))
+          .slice(0, 6);
+
+        if (sorted.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="4" class="table-empty">No trips yet.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = sorted.map(t => `
+          <tr>
+            <td>
+              <span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">
+                ${AppService.escapeHtml(t['Trip ID'])}
+              </span>
+            </td>
+            <td>${AppService.escapeHtml(t['Requestor Name'] || '—')}</td>
+            <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              ${AppService.escapeHtml(t['Purpose'] || '—')}
+            </td>
+            <td>${AppService.statusBadge(t['Status'])}</td>
+          </tr>
+        `).join('');
+      })
+      .withFailureHandler(() => {
+        const tbody = document.getElementById('dashRecentTrips');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="table-empty">Failed to load.</td></tr>`;
+      })
+      .getTrips();
+  }
+
+  // ── PENDING APPROVALS ──────────────────────────────────────
+  function _loadPendingApprovals() {
+    google.script.run
+      .withSuccessHandler(trips => {
+        const tbody = document.getElementById('dashPendingList');
+        if (!tbody) return;
+
+        const pending = trips
+          .filter(t => t['Status'] === 'Submitted')
+          .sort((a, b) => new Date(a['Request Date']) - new Date(b['Request Date']))
+          .slice(0, 6);
+
+        if (pending.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="4" class="table-empty">No pending approvals.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = pending.map(t => `
+          <tr>
+            <td>
+              <span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">
+                ${AppService.escapeHtml(t['Trip ID'])}
+              </span>
+            </td>
+            <td>${AppService.escapeHtml(t['Requestor Name'] || '—')}</td>
+            <td>${AppService.escapeHtml(t['Trip Type'] || '—')}</td>
+            <td style="font-size:12px;color:var(--text-muted);">
+              ${AppService.formatDate(t['Request Date'])}
+            </td>
+          </tr>
+        `).join('');
+      })
+      .withFailureHandler(() => {
+        const tbody = document.getElementById('dashPendingList');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="table-empty">Failed to load.</td></tr>`;
+      })
+      .getTrips();
+  }
+
+  // ── RENEWAL ALERTS ─────────────────────────────────────────
+  function _loadRenewalAlerts() {
+    google.script.run
+      .withSuccessHandler(result => {
+        const tbody = document.getElementById('dashRenewalList');
+        if (!tbody) return;
+
+        const alerts = (result.data || [])
+          .filter(r => r[5] === 'Expired' || r[5] === 'Due in 30 Days')
+          .slice(0, 6);
+
+        // Update sidebar renewal badge
+        const badge = document.getElementById('renewalBadge');
+        if (badge) {
+          badge.textContent = alerts.length;
+          badge.classList.toggle('hidden', alerts.length === 0);
+        }
+
+        // Update dashboard stat
+        _set('dashAlerts', alerts.length);
+
+        if (alerts.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" class="table-empty">No expiring documents.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = alerts.map(r => `
+          <tr>
+            <td>
+              <span style="font-family:var(--font-mono);font-size:12px;">
+                ${AppService.escapeHtml(r[0])}
+              </span>
+            </td>
+            <td>${AppService.escapeHtml(r[1])}</td>
+            <td>${AppService.escapeHtml(r[2])}</td>
+            <td>${AppService.formatDate(r[3])}</td>
+            <td>
+              <span style="font-weight:600;color:${r[4] < 0 ? 'var(--danger)' : r[4] <= 10 ? 'var(--warning)' : 'var(--text)'}">
+                ${r[4] < 0 ? `${Math.abs(r[4])} days ago` : `${r[4]} days`}
+              </span>
+            </td>
+            <td>${AppService.alertBadge(r[5])}</td>
+          </tr>
+        `).join('');
+      })
+      .withFailureHandler(() => {
+        const tbody = document.getElementById('dashRenewalList');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="table-empty">Failed to load.</td></tr>`;
+      })
+      .refreshRenewalAlerts();
+  }
+
+  // ── PUBLIC ─────────────────────────────────────────────────
+  return { load };
+
+})();
+</script>

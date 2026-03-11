@@ -1,0 +1,57 @@
+<!-- ── VEHICLES PAGE ───────────────────────────────────────── -->
+<div class="page-header">
+  <div>
+    <div class="page-header-title">Vehicles</div>
+    <div class="page-header-sub">Manage your fleet master list</div>
+  </div>
+  <div class="action-row">
+    <button class="btn btn-ghost btn-sm" onclick="VehiclesService.load()">
+      <i class="fas fa-rotate-right"></i> Refresh
+    </button>
+    <button class="btn btn-primary" onclick="VehiclesService.openForm()" id="btnAddVehicle">
+      <i class="fas fa-plus"></i> Add Vehicle
+    </button>
+  </div>
+</div>
+
+<!-- FILTER BAR -->
+<div class="filter-bar">
+  <input type="text" class="form-control" id="vehSearch"
+    placeholder="Search plate, brand, type..."
+    oninput="VehiclesService.applyFilter()"/>
+  <select class="form-control" id="vehFilterStatus" onchange="VehiclesService.applyFilter()">
+    <option value="">All Statuses</option>
+    <option value="Active">Active</option>
+    <option value="Under Repair">Under Repair</option>
+    <option value="Inactive">Inactive</option>
+  </select>
+  <select class="form-control" id="vehFilterType" onchange="VehiclesService.applyFilter()">
+    <option value="">All Types</option>
+  </select>
+</div>
+
+<!-- VEHICLES TABLE -->
+<div class="card" style="padding:0;overflow:hidden;">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Vehicle ID</th>
+          <th>Plate Number</th>
+          <th>Type</th>
+          <th>Brand / Model</th>
+          <th>Status</th>
+          <th>Insurance Expiry</th>
+          <th>LTO Expiry</th>
+          <th>Beg. Mileage</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="vehiclesTableBody">
+        <tr><td colspan="9" class="table-empty">
+          <i class="fas fa-spinner fa-spin"></i> Loading...
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>

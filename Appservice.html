@@ -1,0 +1,336 @@
+<script>
+// ============================================================
+// AppService.js — Core Application Service
+// Handles: session, navigation, modal, toast, loader, helpers
+// ============================================================
+
+const AppService = (() => {
+
+  // ── STATE ──────────────────────────────────────────────────
+  let _currentUser  = null;
+  let _appData      = null;   // { employees, vehicles, settings }
+  let _currentPage  = null;
+  let _sidebarOpen  = true;
+
+  // ── INIT ───────────────────────────────────────────────────
+  function init() {
+    _updateTopbarDate();
+    setInterval(_updateTopbarDate, 60000);
+    _loadEmployeesForSplash();
+  }
+
+  function _updateTopbarDate() {
+    const el = document.getElementById('topbarDate');
+    if (el) el.textContent = new Date().toLocaleDateString('en-PH', {
+      weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'
+    });
+  }
+
+  // ── SPLASH / LOGIN ─────────────────────────────────────────
+  function _loadEmployeesForSplash() {
+    showLoader('Loading...');
+    google.script.run
+      .withSuccessHandler(data => {
+        hideLoader();
+        if (!data.success) { showToast('Failed to load employee data.', 'error'); return; }
+        _appData = data;
+        const sel = document.getElementById('userSelect');
+        data.employees.forEach(emp => {
+          const opt = document.createElement('option');
+          opt.value = emp['Employee ID'];
+          opt.textContent = `${emp['Employee Name']} (${emp['Role']})`;
+          sel.appendChild(opt);
+        });
+      })
+      .withFailureHandler(err => {
+        hideLoader();
+        showToast('Connection error: ' + err.message, 'error');
+      })
+      .getAppData();
+  }
+
+  function loginUser() {
+    const sel = document.getElementById('userSelect');
+    const err = document.getElementById('splashError');
+    if (!sel.value) { err.classList.remove('hidden'); return; }
+    err.classList.add('hidden');
+
+    const emp = _appData.employees.find(e => String(e['Employee ID']) === String(sel.value));
+    if (!emp) { showToast('Employee not found.', 'error'); return; }
+
+    _currentUser = emp;
+    _renderUserUI();
+    _applyRoleVisibility();
+    document.getElementById('splashScreen').classList.add('hidden');
+    document.getElementById('mainApp').classList.remove('hidden');
+    navigate('dashboard');
+  }
+
+  function logout() {
+    _currentUser = null;
+    _currentPage = null;
+    document.getElementById('mainApp').classList.add('hidden');
+    document.getElementById('splashScreen').classList.remove('hidden');
+    document.getElementById('userSelect').value = '';
+  }
+
+  function _renderUserUI() {
+    const name   = _currentUser['Employee Name'] || '?';
+    const role   = _currentUser['Role'] || '—';
+    const initials = name.split(' ').map(w => w[0]).join('').substring(0,2).toUpperCase();
+
+    document.getElementById('sidebarAvatar').textContent   = initials;
+    document.getElementById('sidebarUserName').textContent = name;
+    document.getElementById('sidebarUserRole').textContent = role;
+    document.getElementById('topbarAvatar').textContent    = initials;
+    document.getElementById('topbarUserName').textContent  = name;
+  }
+
+  function _applyRoleVisibility() {
+    const role = _currentUser['Role'];
+    document.querySelectorAll('.nav-item-role').forEach(el => {
+      const roles = (el.dataset.roles || '').split(',').map(r => r.trim());
+      el.style.display = roles.includes(role) ? '' : 'none';
+    });
+  }
+
+  function getCurrentUser()  { return _currentUser; }
+  function getAppData()      { return _appData; }
+  function refreshAppData()  {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(data => { if (data.success) _appData = data; resolve(data); })
+        .withFailureHandler(reject)
+        .getAppData();
+    });
+  }
+
+  // ── NAVIGATION ─────────────────────────────────────────────
+  function navigate(page) {
+    // Hide all pages
+    document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+
+    // Show target page
+    const target = document.getElementById(`page-${page}`);
+    if (!target) return;
+    target.classList.remove('hidden');
+
+    // Update nav active state
+    document.querySelectorAll('.nav-item').forEach(el => {
+      el.classList.toggle('active', el.dataset.page === page);
+    });
+
+    // Update breadcrumb
+    const titles = {
+      dashboard:     'Dashboard',
+      trips:         'Trip Requests',
+      approval:      'Approval',
+      completion:    'Trip Completion',
+      vehicles:      'Vehicles',
+      renewalAlerts: 'Renewal Alerts',
+      reports:       'Reports'
+    };
+    const titleEl = document.getElementById('pageTitle');
+    if (titleEl) titleEl.textContent = titles[page] || page;
+
+    _currentPage = page;
+
+    // Fire page-specific load functions
+    const loaders = {
+      dashboard:     () => typeof DashboardService !== 'undefined' && DashboardService.load(),
+      trips:         () => typeof TripsService     !== 'undefined' && TripsService.load(),
+      approval:      () => typeof ApprovalService  !== 'undefined' && ApprovalService.load(),
+      completion:    () => typeof CompletionService !== 'undefined' && CompletionService.load(),
+      vehicles:      () => typeof VehiclesService  !== 'undefined' && VehiclesService.load(),
+      renewalAlerts: () => typeof RenewalAlertsService !== 'undefined' && RenewalAlertsService.load(),
+      reports:       () => typeof ReportsService   !== 'undefined' && ReportsService.load(),
+    };
+    if (loaders[page]) loaders[page]();
+
+    // Close sidebar on mobile
+    if (window.innerWidth <= 768) {
+      document.getElementById('sidebar').classList.add('collapsed');
+    }
+  }
+
+  // ── SIDEBAR ─────────────────────────────────────────────────
+  function toggleSidebar() {
+    const sb = document.getElementById('sidebar');
+    sb.classList.toggle('collapsed');
+    _sidebarOpen = !sb.classList.contains('collapsed');
+  }
+
+  // ── MODAL ───────────────────────────────────────────────────
+  function openModal(title, bodyHtml, footerHtml, large = false) {
+    document.getElementById('modalTitle').textContent  = title;
+    document.getElementById('modalBody').innerHTML     = bodyHtml;
+    document.getElementById('modalFooter').innerHTML   = footerHtml || '';
+    const box = document.getElementById('modalBox');
+    box.classList.toggle('modal-lg', large);
+    document.getElementById('globalModal').classList.remove('hidden');
+  }
+
+  function closeModal() {
+    document.getElementById('globalModal').classList.add('hidden');
+    document.getElementById('modalBody').innerHTML   = '';
+    document.getElementById('modalFooter').innerHTML = '';
+  }
+
+  // Close modal on overlay click
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('globalModal').addEventListener('click', function(e) {
+      if (e.target === this) closeModal();
+    });
+    init();
+  });
+
+  // ── TOAST ───────────────────────────────────────────────────
+  function showToast(message, type = 'info', duration = 3500) {
+    const icons = { success: 'fa-circle-check', error: 'fa-circle-xmark', warning: 'fa-triangle-exclamation', info: 'fa-circle-info' };
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type === 'error' ? 'error' : type}`;
+    toast.innerHTML = `<i class="fas ${icons[type] || icons.info} toast-icon"></i><span>${message}</span>`;
+    document.getElementById('toastContainer').appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transition = 'opacity 0.3s';
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+
+  // ── LOADER ──────────────────────────────────────────────────
+  function showLoader(text = 'Loading...') {
+    document.getElementById('loaderText').textContent = text;
+    document.getElementById('globalLoader').classList.remove('hidden');
+  }
+
+  function hideLoader() {
+    document.getElementById('globalLoader').classList.add('hidden');
+  }
+
+  // ── CONFIRM DIALOG ───────────────────────────────────────────
+  function confirm(message, onConfirm, onCancel, danger = true) {
+    const body = `<p style="color:var(--text-muted);font-size:14px;line-height:1.6;">${message}</p>`;
+    const footer = `
+      <button class="btn btn-ghost" onclick="AppService.closeModal()">Cancel</button>
+      <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" id="confirmOkBtn">Confirm</button>
+    `;
+    openModal('Confirm Action', body, footer);
+    setTimeout(() => {
+      const btn = document.getElementById('confirmOkBtn');
+      if (btn) btn.addEventListener('click', () => { closeModal(); if (onConfirm) onConfirm(); });
+    }, 50);
+  }
+
+  // ── HELPERS ─────────────────────────────────────────────────
+  function formatDate(val) {
+    if (!val) return '—';
+    const d = new Date(val);
+    if (isNaN(d)) return val;
+    return d.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  function formatDateTime(val) {
+    if (!val) return '—';
+    const d = new Date(val);
+    if (isNaN(d)) return val;
+    return d.toLocaleString('en-PH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function statusBadge(status) {
+    if (!status) return '—';
+    const map = {
+      'Draft':      'badge-draft',
+      'Submitted':  'badge-submitted',
+      'Approved':   'badge-approved',
+      'Rejected':   'badge-rejected',
+      'Cancelled':  'badge-cancelled',
+      'Completed':  'badge-completed',
+    };
+    return `<span class="badge ${map[status] || 'badge-draft'}">${status}</span>`;
+  }
+
+  function vehicleStatusBadge(status) {
+    if (!status) return '—';
+    const map = {
+      'Active':       'badge-active',
+      'Under Repair': 'badge-repair',
+      'Inactive':     'badge-inactive',
+    };
+    return `<span class="badge ${map[status] || 'badge-draft'}">${status}</span>`;
+  }
+
+  function alertBadge(status) {
+    if (!status) return '—';
+    const map = {
+      'OK':             'badge-ok',
+      'Due in 30 Days': 'badge-due',
+      'Expired':        'badge-expired',
+    };
+    return `<span class="badge ${map[status] || 'badge-draft'}">${status}</span>`;
+  }
+
+  function buildOptions(arr, selectedVal = '', placeholder = '— Select —') {
+    let html = `<option value="">${placeholder}</option>`;
+    arr.forEach(item => {
+      const selected = String(item.value || item) === String(selectedVal) ? 'selected' : '';
+      const label = item.label || item.value || item;
+      const val   = item.value !== undefined ? item.value : item;
+      html += `<option value="${val}" ${selected}>${label}</option>`;
+    });
+    return html;
+  }
+
+  function buildEmployeeOptions(employees, selectedId = '', roleFiler = null) {
+    let list = roleFiler ? employees.filter(e => e['Role'] === roleFiler) : employees;
+    return buildOptions(list.map(e => ({ value: e['Employee ID'], label: `${e['Employee Name']}` })), selectedId);
+  }
+
+  function buildVehicleOptions(vehicles, selectedId = '') {
+    return buildOptions(vehicles.map(v => ({ value: v['Vehicle ID'], label: `${v['Plate Number']} — ${v['Brand/Model'] || v['Vehicle Type']}` })), selectedId);
+  }
+
+  function hasRole(...roles) {
+    if (!_currentUser) return false;
+    return roles.includes(_currentUser['Role']);
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ── PUBLIC API ───────────────────────────────────────────────
+  return {
+    init,
+    loginUser,
+    logout,
+    getCurrentUser,
+    getAppData,
+    refreshAppData,
+    navigate,
+    toggleSidebar,
+    openModal,
+    closeModal,
+    confirm,
+    showToast,
+    showLoader,
+    hideLoader,
+    formatDate,
+    formatDateTime,
+    statusBadge,
+    vehicleStatusBadge,
+    alertBadge,
+    buildOptions,
+    buildEmployeeOptions,
+    buildVehicleOptions,
+    hasRole,
+    escapeHtml
+  };
+
+})();
+</script>
