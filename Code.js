@@ -4,11 +4,15 @@
 // ============================================================
 
 // ── CONFIGURATION ───────────────────────────────────────────
-// Leave SPREADSHEET_ID blank to auto-create a new spreadsheet
-// on first run. After first run, the ID will be saved to
-// Script Properties automatically.
+// HOW TO SET UP:
+// Option A (Recommended): Leave SPREADSHEET_ID blank.
+//   The script uses the Google Sheet it is bound to.
+//   Just run setupDatabase() once from the Apps Script editor.
+//
+// Option B: Paste your Spreadsheet ID below if using
+//   a standalone script (not bound to a sheet).
 var CONFIG = {
-  SPREADSHEET_ID: '',   // ← Leave blank for auto-setup
+  SPREADSHEET_ID: '',   // ← Paste Sheet ID here if needed (Option B)
   SHEETS: {
     EMPLOYEES:      'Employees',
     VEHICLES:       'Vehicles',
@@ -18,32 +22,36 @@ var CONFIG = {
   }
 };
 
-// ── GET SPREADSHEET ID (auto or manual) ─────────────────────
-function _getSpreadsheetId() {
-  // 1. Use hardcoded ID if provided
+// ── GET SPREADSHEET ──────────────────────────────────────────
+function _getSS() {
+  // Option B: explicit ID
   if (CONFIG.SPREADSHEET_ID && CONFIG.SPREADSHEET_ID !== '') {
-    return CONFIG.SPREADSHEET_ID;
+    return SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
   }
-  // 2. Check Script Properties for saved ID
+  // Option A: check saved property
   var props = PropertiesService.getScriptProperties();
   var saved = props.getProperty('SPREADSHEET_ID');
-  if (saved) return saved;
-  // 3. Auto-create new spreadsheet
-  return _createNewSpreadsheet();
-}
-
-function _createNewSpreadsheet() {
+  if (saved && saved !== '') {
+    return SpreadsheetApp.openById(saved);
+  }
+  // Option A fallback: use the bound (active) spreadsheet
+  try {
+    var active = SpreadsheetApp.getActiveSpreadsheet();
+    if (active) {
+      // Save for future calls
+      props.setProperty('SPREADSHEET_ID', active.getId());
+      return active;
+    }
+  } catch (e) {}
+  // Last resort: create a new standalone spreadsheet
   var ss  = SpreadsheetApp.create('OPS Trip Monitoring System — Database');
-  var id  = ss.getId();
-  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', id);
-  Logger.log('New spreadsheet created: ' + ss.getUrl());
-  _initializeSpreadsheet(ss);
-  return id;
+  props.setProperty('SPREADSHEET_ID', ss.getId());
+  Logger.log('Created new spreadsheet: ' + ss.getUrl());
+  return ss;
 }
 
 // ── ENTRY POINT ─────────────────────────────────────────────
 function doGet(e) {
-  _getSpreadsheetId(); // Auto-setup on first visit
   return HtmlService
     .createTemplateFromFile('Index')
     .evaluate()
@@ -57,10 +65,6 @@ function include(filename) {
 }
 
 // ── SPREADSHEET HELPERS ──────────────────────────────────────
-function _getSS() {
-  return SpreadsheetApp.openById(_getSpreadsheetId());
-}
-
 function getSheet(name) {
   return _getSS().getSheetByName(name);
 }
@@ -588,16 +592,41 @@ function getReportExpiringDocuments() {
 function getAppData() {
   try {
     var ss = _getSS();
-    if (!ss.getSheetByName(CONFIG.SHEETS.EMPLOYEES)) _initializeSpreadsheet(ss);
-    if (!ss.getSheetByName(CONFIG.SHEETS.SETTINGS))  _setupSettingsSheet(ss);
-    if (!ss.getSheetByName(CONFIG.SHEETS.VEHICLES))  _setupVehiclesSheet(ss);
+
+    // Auto-initialize any missing sheets
+    if (!ss.getSheetByName(CONFIG.SHEETS.EMPLOYEES))      _setupEmployeesSheet(ss);
+    if (!ss.getSheetByName(CONFIG.SHEETS.VEHICLES))       _setupVehiclesSheet(ss);
+    if (!ss.getSheetByName(CONFIG.SHEETS.TRIPS))          _setupTripsSheet(ss);
+    if (!ss.getSheetByName(CONFIG.SHEETS.SETTINGS))       _setupSettingsSheet(ss);
+    if (!ss.getSheetByName(CONFIG.SHEETS.RENEWAL_ALERTS)) _setupRenewalAlertsSheet(ss);
+
+    var employees = getEmployees();
+    var vehicles  = getActiveVehicles();
+    var settings  = getSettings();
+
+    // If employees sheet exists but is empty, seed it
+    if (employees.length === 0) {
+      _setupEmployeesSheet(ss);
+      employees = getEmployees();
+    }
+    // Same for settings
+    if (Object.keys(settings).length === 0) {
+      _setupSettingsSheet(ss);
+      settings = getSettings();
+    }
+    // Same for vehicles
+    if (vehicles.length === 0) {
+      _setupVehiclesSheet(ss);
+      vehicles = getActiveVehicles();
+    }
+
     return {
       success:   true,
-      employees: getEmployees(),
-      vehicles:  getActiveVehicles(),
-      settings:  getSettings()
+      employees: employees,
+      vehicles:  vehicles,
+      settings:  settings
     };
   } catch (e) {
-    return { success: false, message: e.message };
+    return { success: false, message: 'getAppData error: ' + e.message };
   }
 }
