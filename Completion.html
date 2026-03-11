@@ -1,0 +1,48 @@
+<!-- ── COMPLETION PAGE ─────────────────────────────────────── -->
+<div class="page-header">
+  <div>
+    <div class="page-header-title">Trip Completion</div>
+    <div class="page-header-sub">Record actual trip details and mark trips as completed</div>
+  </div>
+  <button class="btn btn-ghost btn-sm" onclick="CompletionService.load()">
+    <i class="fas fa-rotate-right"></i> Refresh
+  </button>
+</div>
+
+<!-- FILTER BAR -->
+<div class="filter-bar">
+  <input type="text" class="form-control" id="compSearch"
+    placeholder="Search ID, requestor, plate, driver..."
+    oninput="CompletionService.applyFilter()"/>
+  <select class="form-control" id="compFilterStatus" onchange="CompletionService.applyFilter()">
+    <option value="Approved">Approved (Pending Completion)</option>
+    <option value="">All Statuses</option>
+    <option value="Completed">Completed</option>
+  </select>
+</div>
+
+<!-- COMPLETION TABLE -->
+<div class="card" style="padding:0;overflow:hidden;">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Trip ID</th>
+          <th>Requestor</th>
+          <th>Purpose</th>
+          <th>Vehicle</th>
+          <th>Driver</th>
+          <th>Planned Start</th>
+          <th>Planned End</th>
+          <th>Status</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="compTableBody">
+        <tr><td colspan="9" class="table-empty">
+          <i class="fas fa-spinner fa-spin"></i> Loading...
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>

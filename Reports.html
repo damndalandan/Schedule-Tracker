@@ -1,0 +1,178 @@
+<!-- ── REPORTS PAGE ────────────────────────────────────────── -->
+<div class="page-header">
+  <div>
+    <div class="page-header-title">Reports</div>
+    <div class="page-header-sub">Fleet and trip analytics summary</div>
+  </div>
+  <button class="btn btn-ghost btn-sm" onclick="ReportsService.load()">
+    <i class="fas fa-rotate-right"></i> Refresh
+  </button>
+</div>
+
+<!-- REPORT TABS -->
+<div class="report-tabs">
+  <button class="report-tab active" id="tab-byVehicle"  onclick="ReportsService.showTab('byVehicle')">
+    <i class="fas fa-car"></i> By Vehicle
+  </button>
+  <button class="report-tab" id="tab-byDriver"   onclick="ReportsService.showTab('byDriver')">
+    <i class="fas fa-id-card"></i> By Driver
+  </button>
+  <button class="report-tab" id="tab-byType"     onclick="ReportsService.showTab('byType')">
+    <i class="fas fa-tags"></i> By Trip Type
+  </button>
+  <button class="report-tab" id="tab-mileage"    onclick="ReportsService.showTab('mileage')">
+    <i class="fas fa-gauge-high"></i> Mileage Summary
+  </button>
+  <button class="report-tab" id="tab-expiring"   onclick="ReportsService.showTab('expiring')">
+    <i class="fas fa-bell"></i> Expiring Documents
+  </button>
+</div>
+
+<!-- ── REPORT: BY VEHICLE ──────────────────────────────────── -->
+<div class="report-panel" id="panel-byVehicle">
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="card-header" style="padding:16px 20px;">
+      <div class="card-title"><i class="fas fa-car"></i> Trips by Vehicle</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Vehicle ID</th>
+            <th>Plate Number</th>
+            <th>Total Trips</th>
+            <th>Total Distance</th>
+            <th>Avg Distance / Trip</th>
+          </tr>
+        </thead>
+        <tbody id="rptByVehicleBody">
+          <tr><td colspan="5" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── REPORT: BY DRIVER ───────────────────────────────────── -->
+<div class="report-panel hidden" id="panel-byDriver">
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="card-header" style="padding:16px 20px;">
+      <div class="card-title"><i class="fas fa-id-card"></i> Trips by Driver</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Driver ID</th>
+            <th>Driver Name</th>
+            <th>Total Trips</th>
+            <th>Total Distance</th>
+            <th>Avg Distance / Trip</th>
+          </tr>
+        </thead>
+        <tbody id="rptByDriverBody">
+          <tr><td colspan="5" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── REPORT: BY TRIP TYPE ────────────────────────────────── -->
+<div class="report-panel hidden" id="panel-byType">
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="card-header" style="padding:16px 20px;">
+      <div class="card-title"><i class="fas fa-tags"></i> Trips by Type</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Trip Type</th>
+            <th>Total Trips</th>
+            <th>% of Total</th>
+          </tr>
+        </thead>
+        <tbody id="rptByTypeBody">
+          <tr><td colspan="3" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── REPORT: MILEAGE SUMMARY ─────────────────────────────── -->
+<div class="report-panel hidden" id="panel-mileage">
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="card-header" style="padding:16px 20px;">
+      <div class="card-title"><i class="fas fa-gauge-high"></i> Vehicle Mileage Summary</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Vehicle ID</th>
+            <th>Plate Number</th>
+            <th>Beginning Mileage</th>
+            <th>Latest End Mileage</th>
+            <th>Total Recorded km</th>
+          </tr>
+        </thead>
+        <tbody id="rptMileageBody">
+          <tr><td colspan="5" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── REPORT: EXPIRING DOCUMENTS ─────────────────────────── -->
+<div class="report-panel hidden" id="panel-expiring">
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="card-header" style="padding:16px 20px;">
+      <div class="card-title"><i class="fas fa-bell"></i> Expiring Documents</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Vehicle ID</th>
+            <th>Plate Number</th>
+            <th>Document Type</th>
+            <th>Expiry Date</th>
+            <th>Days Left</th>
+            <th>Alert Status</th>
+          </tr>
+        </thead>
+        <tbody id="rptExpiringBody">
+          <tr><td colspan="6" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- REPORT TAB STYLES -->
+<style>
+.report-tabs {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.report-tab {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 16px; border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 600;
+  background: var(--bg2); border: 1px solid var(--border);
+  color: var(--text-muted);
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  cursor: pointer;
+}
+.report-tab:hover {
+  background: var(--bg3); color: var(--text);
+}
+.report-tab.active {
+  background: var(--accent-glow); color: var(--accent);
+  border-color: var(--accent);
+}
+.report-panel { animation: fadeIn 0.2s ease; }
+</style>

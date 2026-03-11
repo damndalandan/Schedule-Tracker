@@ -1,0 +1,81 @@
+<!-- ── RENEWAL ALERTS PAGE ─────────────────────────────────── -->
+<div class="page-header">
+  <div>
+    <div class="page-header-title">Renewal Alerts</div>
+    <div class="page-header-sub">Monitor vehicle insurance and LTO document expiry</div>
+  </div>
+  <div class="action-row">
+    <button class="btn btn-ghost btn-sm" onclick="RenewalAlertsService.load()">
+      <i class="fas fa-rotate-right"></i> Refresh
+    </button>
+    <button class="btn btn-primary btn-sm" onclick="RenewalAlertsService.refreshAlerts()">
+      <i class="fas fa-bell"></i> Recalculate Alerts
+    </button>
+  </div>
+</div>
+
+<!-- SUMMARY CARDS -->
+<div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));margin-bottom:24px;">
+  <div class="stat-card">
+    <div class="stat-icon red"><i class="fas fa-circle-exclamation"></i></div>
+    <div class="stat-label">Expired</div>
+    <div class="stat-value danger" id="raExpiredCount">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon yellow"><i class="fas fa-triangle-exclamation"></i></div>
+    <div class="stat-label">Due in 30 Days</div>
+    <div class="stat-value warning" id="raDueCount">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon green"><i class="fas fa-circle-check"></i></div>
+    <div class="stat-label">OK</div>
+    <div class="stat-value success" id="raOkCount">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon blue"><i class="fas fa-file-shield"></i></div>
+    <div class="stat-label">Total Documents</div>
+    <div class="stat-value accent" id="raTotalCount">—</div>
+  </div>
+</div>
+
+<!-- FILTER BAR -->
+<div class="filter-bar">
+  <input type="text" class="form-control" id="raSearch"
+    placeholder="Search vehicle ID, plate..."
+    oninput="RenewalAlertsService.applyFilter()"/>
+  <select class="form-control" id="raFilterStatus" onchange="RenewalAlertsService.applyFilter()">
+    <option value="">All Statuses</option>
+    <option value="Expired">Expired</option>
+    <option value="Due in 30 Days">Due in 30 Days</option>
+    <option value="OK">OK</option>
+  </select>
+  <select class="form-control" id="raFilterDoc" onchange="RenewalAlertsService.applyFilter()">
+    <option value="">All Documents</option>
+    <option value="Insurance Expiry">Insurance</option>
+    <option value="LTO Expiry">LTO</option>
+  </select>
+</div>
+
+<!-- ALERTS TABLE -->
+<div class="card" style="padding:0;overflow:hidden;">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Vehicle ID</th>
+          <th>Plate Number</th>
+          <th>Document Type</th>
+          <th>Expiry Date</th>
+          <th>Days Left</th>
+          <th>Alert Status</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="raTableBody">
+        <tr><td colspan="7" class="table-empty">
+          <i class="fas fa-spinner fa-spin"></i> Loading...
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>

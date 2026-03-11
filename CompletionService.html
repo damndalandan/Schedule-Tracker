@@ -1,0 +1,397 @@
+<script>
+// ============================================================
+// CompletionService.html — Trip Completion Page Logic
+// Save this file as: CompletionService.html in Apps Script
+// ============================================================
+
+var CompletionService = (function() {
+
+  var _allTrips = [];
+
+  // ── LOAD ───────────────────────────────────────────────────
+  function load() {
+    if (!AppService.hasRole('Admin', 'Approver')) {
+      document.getElementById('page-completion').innerHTML =
+        '<div class="card" style="text-align:center;padding:40px;">' +
+          '<i class="fas fa-lock" style="font-size:32px;color:var(--text-dim);margin-bottom:12px;display:block;"></i>' +
+          '<div style="color:var(--text-muted);">You do not have access to this page.</div>' +
+        '</div>';
+      return;
+    }
+    _fetchTrips();
+  }
+
+  function _fetchTrips() {
+    var tbody = document.getElementById('compTableBody');
+    if (tbody) {
+      tbody.innerHTML = '<tr><td colspan="9" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>';
+    }
+
+    google.script.run
+      .withSuccessHandler(function(trips) {
+        // Only Approved and Completed trips are relevant here
+        _allTrips = trips.filter(function(t) {
+          return t['Status'] === 'Approved' || t['Status'] === 'Completed';
+        });
+        applyFilter();
+      })
+      .withFailureHandler(function() {
+        if (tbody) {
+          tbody.innerHTML = '<tr><td colspan="9" class="table-empty">Failed to load trips.</td></tr>';
+        }
+        AppService.showToast('Failed to load trips.', 'error');
+      })
+      .getTrips();
+  }
+
+  // ── FILTER ─────────────────────────────────────────────────
+  function applyFilter() {
+    var search = (document.getElementById('compSearch')       ? document.getElementById('compSearch').value       : '').toLowerCase();
+    var status = (document.getElementById('compFilterStatus') ? document.getElementById('compFilterStatus').value : 'Approved');
+
+    var filtered = _allTrips.filter(function(t) {
+      var matchSearch = !search ||
+        (t['Trip ID']        || '').toLowerCase().indexOf(search) > -1 ||
+        (t['Requestor Name'] || '').toLowerCase().indexOf(search) > -1 ||
+        (t['Plate Number']   || '').toLowerCase().indexOf(search) > -1 ||
+        (t['Driver Name']    || '').toLowerCase().indexOf(search) > -1 ||
+        (t['Purpose']        || '').toLowerCase().indexOf(search) > -1;
+      var matchStatus = !status || t['Status'] === status;
+      return matchSearch && matchStatus;
+    });
+
+    // Approved trips oldest first (longest waiting on top), Completed newest first
+    filtered.sort(function(a, b) {
+      if (a['Status'] === 'Approved' && b['Status'] === 'Approved') {
+        return new Date(a['Request Date']) - new Date(b['Request Date']);
+      }
+      return new Date(b['Request Date']) - new Date(a['Request Date']);
+    });
+
+    _renderTable(filtered);
+  }
+
+  // ── RENDER TABLE ───────────────────────────────────────────
+  function _renderTable(trips) {
+    var tbody = document.getElementById('compTableBody');
+    if (!tbody) return;
+
+    if (trips.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" class="table-empty">No trips found.</td></tr>';
+      return;
+    }
+
+    var rows = '';
+    for (var i = 0; i < trips.length; i++) {
+      var t   = trips[i];
+      var tId = AppService.escapeHtml(t['Trip ID']);
+
+      var actionBtns =
+        '<button class="btn btn-ghost btn-sm btn-icon" title="View Details" ' +
+          'onclick="CompletionService.viewTrip(\'' + tId + '\')">' +
+          '<i class="fas fa-eye"></i></button>';
+
+      if (t['Status'] === 'Approved') {
+        actionBtns +=
+          '<button class="btn btn-sm" title="Record Completion" ' +
+            'style="background:rgba(79,142,247,0.15);color:var(--accent);border:1px solid rgba(79,142,247,0.3);" ' +
+            'onclick="CompletionService.openCompletionForm(\'' + tId + '\')">' +
+            '<i class="fas fa-flag-checkered"></i> Record</button>';
+      }
+
+      if (t['Status'] === 'Completed') {
+        actionBtns +=
+          '<button class="btn btn-ghost btn-sm btn-icon" title="Edit Completion" ' +
+            'onclick="CompletionService.openCompletionForm(\'' + tId + '\')">' +
+            '<i class="fas fa-pen"></i></button>';
+      }
+
+      rows +=
+        '<tr>' +
+          '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">' + tId + '</span></td>' +
+          '<td>' + AppService.escapeHtml(t['Requestor Name'] || '—') + '</td>' +
+          '<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+            AppService.escapeHtml(t['Purpose'] || '—') +
+          '</td>' +
+          '<td style="font-size:12px;">' + AppService.escapeHtml(t['Plate Number'] || '—') + '</td>' +
+          '<td>' + AppService.escapeHtml(t['Driver Name'] || '—') + '</td>' +
+          '<td style="font-size:12px;color:var(--text-muted);">' + AppService.formatDateTime(t['Planned Start DateTime']) + '</td>' +
+          '<td style="font-size:12px;color:var(--text-muted);">' + AppService.formatDateTime(t['Planned End DateTime'])   + '</td>' +
+          '<td>' + AppService.statusBadge(t['Status']) + '</td>' +
+          '<td style="text-align:right;white-space:nowrap;">' +
+            '<div class="action-row" style="justify-content:flex-end;">' + actionBtns + '</div>' +
+          '</td>' +
+        '</tr>';
+    }
+
+    tbody.innerHTML = rows;
+  }
+
+  // ── VIEW TRIP ──────────────────────────────────────────────
+  function viewTrip(tripId) {
+    var t = _findTrip(tripId);
+    if (!t) return;
+
+    var body =
+      '<div class="section-title">Trip Summary</div>' +
+      '<div class="detail-grid">' +
+        _dItem('Trip ID',      '<span style="font-family:var(--font-mono);color:var(--accent);">' + AppService.escapeHtml(t['Trip ID']) + '</span>') +
+        _dItem('Status',       AppService.statusBadge(t['Status'])) +
+        _dItem('Requestor',    AppService.escapeHtml(t['Requestor Name'] || '—')) +
+        _dItem('Trip Type',    AppService.escapeHtml(t['Trip Type']      || '—')) +
+        _dItem('Purpose',      AppService.escapeHtml(t['Purpose']        || '—')) +
+        _dItem('Related JO',   AppService.escapeHtml(t['Related JO']     || '—')) +
+        _dItem('From',         AppService.escapeHtml(t['From Location']  || '—')) +
+        _dItem('To',           AppService.escapeHtml(t['To Location']    || '—')) +
+        _dItem('Planned Start', AppService.formatDateTime(t['Planned Start DateTime'])) +
+        _dItem('Planned End',   AppService.formatDateTime(t['Planned End DateTime'])) +
+        _dItem('Plate Number',  AppService.escapeHtml(t['Plate Number']  || '—')) +
+        _dItem('Driver',        AppService.escapeHtml(t['Driver Name']   || '—')) +
+      '</div>';
+
+    if (t['Status'] === 'Completed') {
+      body +=
+        '<div class="section-title" style="margin-top:18px;">Actual Trip Details</div>' +
+        '<div class="detail-grid">' +
+          _dItem('Actual Start',       AppService.formatDateTime(t['Actual Start DateTime'])) +
+          _dItem('Actual End',         AppService.formatDateTime(t['Actual End DateTime'])) +
+          _dItem('Start Mileage',      t['Start Mileage']      ? Number(t['Start Mileage']).toLocaleString()      + ' km' : '—') +
+          _dItem('End Mileage',        t['End Mileage']        ? Number(t['End Mileage']).toLocaleString()        + ' km' : '—') +
+          _dItem('Distance Travelled', t['Distance Travelled'] ? Number(t['Distance Travelled']).toLocaleString() + ' km' : '—') +
+          _dItem('GPS / Proof', t['GPS/Proof Link']
+            ? '<a href="' + AppService.escapeHtml(t['GPS/Proof Link']) + '" target="_blank" style="color:var(--accent);">View Link <i class="fas fa-arrow-up-right-from-square"></i></a>'
+            : '—') +
+          _dItem('Remarks', AppService.escapeHtml(t['Remarks'] || '—')) +
+        '</div>';
+    }
+
+    var tId    = AppService.escapeHtml(t['Trip ID']);
+    var footer = '<button class="btn btn-ghost" onclick="AppService.closeModal()">Close</button>';
+    if (t['Status'] === 'Approved') {
+      footer +=
+        '<button class="btn btn-primary" onclick="AppService.closeModal();CompletionService.openCompletionForm(\'' + tId + '\')">' +
+          '<i class="fas fa-flag-checkered"></i> Record Completion' +
+        '</button>';
+    }
+    if (t['Status'] === 'Completed') {
+      footer +=
+        '<button class="btn btn-ghost" onclick="AppService.closeModal();CompletionService.openCompletionForm(\'' + tId + '\')">' +
+          '<i class="fas fa-pen"></i> Edit Details' +
+        '</button>';
+    }
+
+    AppService.openModal('Trip Details — ' + AppService.escapeHtml(t['Trip ID']), body, footer, true);
+  }
+
+  // ── COMPLETION FORM ────────────────────────────────────────
+  function openCompletionForm(tripId) {
+    var t = _findTrip(tripId);
+    if (!t) return;
+
+    var body =
+      '<div class="section-title">Trip Summary</div>' +
+      '<div class="detail-grid" style="margin-bottom:20px;">' +
+        _dItem('Trip ID',    '<span style="font-family:var(--font-mono);color:var(--accent);">' + AppService.escapeHtml(t['Trip ID']) + '</span>') +
+        _dItem('Requestor',  AppService.escapeHtml(t['Requestor Name'] || '—')) +
+        _dItem('Purpose',    AppService.escapeHtml(t['Purpose']        || '—')) +
+        _dItem('Plate',      AppService.escapeHtml(t['Plate Number']   || '—')) +
+        _dItem('Driver',     AppService.escapeHtml(t['Driver Name']    || '—')) +
+        _dItem('Route',      AppService.escapeHtml(t['From Location']  || '—') + ' → ' + AppService.escapeHtml(t['To Location'] || '—')) +
+      '</div>' +
+
+      '<div class="section-title">Actual Trip Details</div>' +
+      '<div class="form-grid">' +
+        '<div class="form-group">' +
+          '<label class="form-label">Actual Start <span class="req">*</span></label>' +
+          '<input type="datetime-local" class="form-control" id="fCompActualStart" ' +
+            'value="' + _toDateTimeInput(t['Actual Start DateTime']) + '"/>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label">Actual End <span class="req">*</span></label>' +
+          '<input type="datetime-local" class="form-control" id="fCompActualEnd" ' +
+            'value="' + _toDateTimeInput(t['Actual End DateTime']) + '"/>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label">Start Mileage (km) <span class="req">*</span></label>' +
+          '<input type="number" class="form-control" id="fCompStartMileage" ' +
+            'value="' + (t['Start Mileage'] || '') + '" min="0" ' +
+            'placeholder="Odometer reading at departure" ' +
+            'oninput="CompletionService.calcDistance()"/>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label">End Mileage (km) <span class="req">*</span></label>' +
+          '<input type="number" class="form-control" id="fCompEndMileage" ' +
+            'value="' + (t['End Mileage'] || '') + '" min="0" ' +
+            'placeholder="Odometer reading at return" ' +
+            'oninput="CompletionService.calcDistance()"/>' +
+        '</div>' +
+
+        '<div class="form-group form-grid-full">' +
+          '<label class="form-label">Distance Travelled</label>' +
+          '<div style="display:flex;align-items:center;gap:12px;">' +
+            '<input type="text" class="form-control" id="fCompDistance" ' +
+              'value="' + (t['Distance Travelled'] ? Number(t['Distance Travelled']).toLocaleString() + ' km' : '') + '" ' +
+              'disabled placeholder="Auto-calculated" style="max-width:200px;"/>' +
+            '<span style="font-size:12px;color:var(--text-muted);">Auto-calculated from mileage</span>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="form-group form-grid-full">' +
+          '<label class="form-label">GPS / Proof Link</label>' +
+          '<input type="url" class="form-control" id="fCompProofLink" ' +
+            'value="' + AppService.escapeHtml(t['GPS/Proof Link'] || '') + '" ' +
+            'placeholder="Google Maps link, Drive file, or GPS export URL"/>' +
+          '<div class="form-hint">Optional — attach any proof of trip (map screenshot, GPS export, photo link)</div>' +
+        '</div>' +
+
+        '<div class="form-group form-grid-full">' +
+          '<label class="form-label">Remarks</label>' +
+          '<textarea class="form-control" id="fCompRemarks" rows="2" ' +
+            'placeholder="Optional notes about the trip...">' +
+            AppService.escapeHtml(t['Remarks'] || '') +
+          '</textarea>' +
+        '</div>' +
+      '</div>';
+
+    var tId    = AppService.escapeHtml(t['Trip ID']);
+    var footer =
+      '<button class="btn btn-ghost" onclick="AppService.closeModal()">Cancel</button>' +
+      '<button class="btn btn-primary" onclick="CompletionService.saveCompletion(\'' + tId + '\')">' +
+        '<i class="fas fa-flag-checkered"></i> Mark as Completed' +
+      '</button>';
+
+    AppService.openModal('Record Trip Completion — ' + AppService.escapeHtml(t['Trip ID']), body, footer, true);
+  }
+
+  // Auto-calculate distance when mileage inputs change
+  function calcDistance() {
+    var startEl = document.getElementById('fCompStartMileage');
+    var endEl   = document.getElementById('fCompEndMileage');
+    var distEl  = document.getElementById('fCompDistance');
+    if (!startEl || !endEl || !distEl) return;
+
+    var start = parseFloat(startEl.value);
+    var end   = parseFloat(endEl.value);
+
+    if (!isNaN(start) && !isNaN(end)) {
+      var dist = end - start;
+      if (dist < 0) {
+        distEl.value = 'End mileage must be ≥ start';
+        distEl.style.color = 'var(--danger)';
+      } else {
+        distEl.value = dist.toLocaleString() + ' km';
+        distEl.style.color = 'var(--success)';
+      }
+    } else {
+      distEl.value = '';
+      distEl.style.color = '';
+    }
+  }
+
+  // ── SAVE COMPLETION ────────────────────────────────────────
+  function saveCompletion(tripId) {
+    var actualStart  = document.getElementById('fCompActualStart')   ? document.getElementById('fCompActualStart').value   : '';
+    var actualEnd    = document.getElementById('fCompActualEnd')     ? document.getElementById('fCompActualEnd').value     : '';
+    var startMileage = document.getElementById('fCompStartMileage')  ? document.getElementById('fCompStartMileage').value  : '';
+    var endMileage   = document.getElementById('fCompEndMileage')    ? document.getElementById('fCompEndMileage').value    : '';
+    var proofLink    = document.getElementById('fCompProofLink')     ? document.getElementById('fCompProofLink').value.trim()  : '';
+    var remarks      = document.getElementById('fCompRemarks')       ? document.getElementById('fCompRemarks').value.trim()    : '';
+
+    // Validate
+    if (!actualStart) {
+      AppService.showToast('Actual Start Date/Time is required.', 'error'); return;
+    }
+    if (!actualEnd) {
+      AppService.showToast('Actual End Date/Time is required.', 'error'); return;
+    }
+    if (!startMileage) {
+      AppService.showToast('Start Mileage is required.', 'error'); return;
+    }
+    if (!endMileage) {
+      AppService.showToast('End Mileage is required.', 'error'); return;
+    }
+
+    var startNum = parseFloat(startMileage);
+    var endNum   = parseFloat(endMileage);
+
+    if (isNaN(startNum) || isNaN(endNum)) {
+      AppService.showToast('Mileage values must be numbers.', 'error'); return;
+    }
+    if (endNum < startNum) {
+      AppService.showToast('End Mileage cannot be less than Start Mileage.', 'error'); return;
+    }
+
+    var startDt = new Date(actualStart);
+    var endDt   = new Date(actualEnd);
+    if (endDt < startDt) {
+      AppService.showToast('Actual End cannot be earlier than Actual Start.', 'error'); return;
+    }
+
+    var user = AppService.getCurrentUser();
+
+    AppService.showLoader('Saving completion...');
+    google.script.run
+      .withSuccessHandler(function(result) {
+        AppService.hideLoader();
+        if (result.success) {
+          AppService.closeModal();
+          AppService.showToast(result.message, 'success');
+          _fetchTrips();
+        } else {
+          AppService.showToast(result.message, 'error');
+        }
+      })
+      .withFailureHandler(function(err) {
+        AppService.hideLoader();
+        AppService.showToast('Error saving completion: ' + err.message, 'error');
+      })
+      .saveTrip({
+        'Trip ID':              tripId,
+        'Status':               'Completed',
+        'Actual Start DateTime': actualStart,
+        'Actual End DateTime':   actualEnd,
+        'Start Mileage':         startNum,
+        'End Mileage':           endNum,
+        'Distance Travelled':    endNum - startNum,
+        'GPS/Proof Link':        proofLink,
+        'Remarks':               remarks,
+        'Updated By':            user['Employee Name']
+      });
+  }
+
+  // ── HELPERS ─────────────────────────────────────────────────
+  function _findTrip(tripId) {
+    for (var i = 0; i < _allTrips.length; i++) {
+      if (_allTrips[i]['Trip ID'] === tripId) return _allTrips[i];
+    }
+    return null;
+  }
+
+  function _dItem(label, value) {
+    return '<div class="detail-item">' +
+      '<div class="detail-label">' + label + '</div>' +
+      '<div class="detail-value">'  + value + '</div>' +
+    '</div>';
+  }
+
+  function _toDateTimeInput(val) {
+    if (!val) return '';
+    var d = new Date(val);
+    if (isNaN(d.getTime())) return '';
+    var pad = function(n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+      'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  // ── PUBLIC ──────────────────────────────────────────────────
+  return {
+    load               : load,
+    applyFilter        : applyFilter,
+    viewTrip           : viewTrip,
+    openCompletionForm : openCompletionForm,
+    saveCompletion     : saveCompletion,
+    calcDistance       : calcDistance
+  };
+
+})();
+</script>

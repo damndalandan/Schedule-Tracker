@@ -1,0 +1,228 @@
+<script>
+// ============================================================
+// RenewalAlertsService.html — Renewal Alerts Page Logic
+// Save this file as: RenewalAlertsService.html in Apps Script
+// ============================================================
+
+var RenewalAlertsService = (function() {
+
+  var _allAlerts = [];
+
+  // ── LOAD ───────────────────────────────────────────────────
+  function load() {
+    if (!AppService.hasRole('Admin', 'Approver', 'Auditor')) {
+      document.getElementById('page-renewalAlerts').innerHTML =
+        '<div class="card" style="text-align:center;padding:40px;">' +
+          '<i class="fas fa-lock" style="font-size:32px;color:var(--text-dim);margin-bottom:12px;display:block;"></i>' +
+          '<div style="color:var(--text-muted);">You do not have access to this page.</div>' +
+        '</div>';
+      return;
+    }
+    _fetchAlerts();
+  }
+
+  // ── FETCH ALERTS ───────────────────────────────────────────
+  function _fetchAlerts() {
+    var tbody = document.getElementById('raTableBody');
+    if (tbody) {
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>';
+    }
+
+    google.script.run
+      .withSuccessHandler(function(result) {
+        if (!result.success) {
+          AppService.showToast('Failed to load alerts.', 'error');
+          return;
+        }
+        // result.data = array of arrays [VehicleID, Plate, DocType, Expiry, DaysLeft, AlertStatus]
+        _allAlerts = result.data || [];
+        _renderStats();
+        applyFilter();
+        _updateSidebarBadge();
+      })
+      .withFailureHandler(function() {
+        if (tbody) {
+          tbody.innerHTML = '<tr><td colspan="7" class="table-empty">Failed to load alerts.</td></tr>';
+        }
+        AppService.showToast('Failed to load renewal alerts.', 'error');
+      })
+      .refreshRenewalAlerts();
+  }
+
+  // ── RECALCULATE ─────────────────────────────────────────────
+  function refreshAlerts() {
+    AppService.showLoader('Recalculating alerts...');
+    google.script.run
+      .withSuccessHandler(function(result) {
+        AppService.hideLoader();
+        if (result.success) {
+          _allAlerts = result.data || [];
+          _renderStats();
+          applyFilter();
+          _updateSidebarBadge();
+          AppService.showToast('Alerts recalculated successfully.', 'success');
+        } else {
+          AppService.showToast('Failed to recalculate alerts.', 'error');
+        }
+      })
+      .withFailureHandler(function(err) {
+        AppService.hideLoader();
+        AppService.showToast('Error: ' + err.message, 'error');
+      })
+      .refreshRenewalAlerts();
+  }
+
+  // ── STATS ──────────────────────────────────────────────────
+  function _renderStats() {
+    var expired = 0;
+    var due     = 0;
+    var ok      = 0;
+
+    for (var i = 0; i < _allAlerts.length; i++) {
+      var status = String(_allAlerts[i][5]);
+      if (status === 'Expired')        expired++;
+      else if (status === 'Due in 30 Days') due++;
+      else if (status === 'OK')        ok++;
+    }
+
+    _set('raExpiredCount', expired);
+    _set('raDueCount',     due);
+    _set('raOkCount',      ok);
+    _set('raTotalCount',   _allAlerts.length);
+  }
+
+  function _set(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = val;
+  }
+
+  function _updateSidebarBadge() {
+    var critical = 0;
+    for (var i = 0; i < _allAlerts.length; i++) {
+      var s = String(_allAlerts[i][5]);
+      if (s === 'Expired' || s === 'Due in 30 Days') critical++;
+    }
+    var badge = document.getElementById('renewalBadge');
+    if (badge) {
+      badge.textContent = critical;
+      if (critical === 0) {
+        badge.classList.add('hidden');
+      } else {
+        badge.classList.remove('hidden');
+      }
+    }
+  }
+
+  // ── FILTER ─────────────────────────────────────────────────
+  function applyFilter() {
+    var search    = (document.getElementById('raSearch')       ? document.getElementById('raSearch').value       : '').toLowerCase();
+    var status    = (document.getElementById('raFilterStatus') ? document.getElementById('raFilterStatus').value : '');
+    var docType   = (document.getElementById('raFilterDoc')    ? document.getElementById('raFilterDoc').value    : '');
+
+    var filtered = _allAlerts.filter(function(r) {
+      var matchSearch  = !search  ||
+        String(r[0]).toLowerCase().indexOf(search) > -1 ||
+        String(r[1]).toLowerCase().indexOf(search) > -1;
+      var matchStatus  = !status  || String(r[5]) === status;
+      var matchDoc     = !docType || String(r[2]) === docType;
+      return matchSearch && matchStatus && matchDoc;
+    });
+
+    // Sort: Expired first, then Due in 30 Days, then OK; within each group by days left ascending
+    filtered.sort(function(a, b) {
+      var order = { 'Expired': 0, 'Due in 30 Days': 1, 'OK': 2 };
+      var aOrder = order[String(a[5])] !== undefined ? order[String(a[5])] : 3;
+      var bOrder = order[String(b[5])] !== undefined ? order[String(b[5])] : 3;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return Number(a[4]) - Number(b[4]);
+    });
+
+    _renderTable(filtered);
+  }
+
+  // ── RENDER TABLE ───────────────────────────────────────────
+  function _renderTable(alerts) {
+    var tbody = document.getElementById('raTableBody');
+    if (!tbody) return;
+
+    if (alerts.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">No alerts found.</td></tr>';
+      return;
+    }
+
+    var rows = '';
+    for (var i = 0; i < alerts.length; i++) {
+      var r        = alerts[i];
+      var vId      = AppService.escapeHtml(String(r[0]));
+      var plate    = AppService.escapeHtml(String(r[1]));
+      var docType  = AppService.escapeHtml(String(r[2]));
+      var expiry   = AppService.formatDate(r[3]);
+      var daysLeft = Number(r[4]);
+      var alertSt  = String(r[5]);
+
+      // Days left display
+      var daysColor = 'var(--text)';
+      var daysLabel = daysLeft + ' days';
+      if (daysLeft < 0) {
+        daysColor = 'var(--danger)';
+        daysLabel = Math.abs(daysLeft) + ' days ago';
+      } else if (daysLeft <= 7) {
+        daysColor = 'var(--danger)';
+      } else if (daysLeft <= 30) {
+        daysColor = 'var(--warning)';
+      } else {
+        daysColor = 'var(--success)';
+      }
+
+      // Doc type icon
+      var docIcon = docType.indexOf('Insurance') > -1
+        ? '<i class="fas fa-shield-halved" style="color:var(--accent);margin-right:6px;"></i>'
+        : '<i class="fas fa-car-side" style="color:var(--warning);margin-right:6px;"></i>';
+
+      rows +=
+        '<tr>' +
+          '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">' + vId + '</span></td>' +
+          '<td><strong>' + plate + '</strong></td>' +
+          '<td>' + docIcon + docType + '</td>' +
+          '<td>' + expiry + '</td>' +
+          '<td>' +
+            '<span style="font-weight:600;color:' + daysColor + ';">' + daysLabel + '</span>' +
+          '</td>' +
+          '<td>' + AppService.alertBadge(alertSt) + '</td>' +
+          '<td style="text-align:right;">' +
+            '<button class="btn btn-ghost btn-sm btn-icon" title="Go to Vehicle" ' +
+              'onclick="RenewalAlertsService.goToVehicle(\'' + vId + '\')">' +
+              '<i class="fas fa-arrow-up-right-from-square"></i></button>' +
+          '</td>' +
+        '</tr>';
+    }
+
+    tbody.innerHTML = rows;
+  }
+
+  // ── GO TO VEHICLE ──────────────────────────────────────────
+  // Navigates to Vehicles page and opens the vehicle detail
+  function goToVehicle(vehicleId) {
+    if (!AppService.hasRole('Admin', 'Approver')) {
+      AppService.showToast('You need Admin or Approver access to view vehicle details.', 'warning');
+      return;
+    }
+    AppService.navigate('vehicles');
+    // Small delay to let the Vehicles page load first
+    setTimeout(function() {
+      if (typeof VehiclesService !== 'undefined') {
+        VehiclesService.viewVehicle(vehicleId);
+      }
+    }, 800);
+  }
+
+  // ── PUBLIC ──────────────────────────────────────────────────
+  return {
+    load          : load,
+    applyFilter   : applyFilter,
+    refreshAlerts : refreshAlerts,
+    goToVehicle   : goToVehicle
+  };
+
+})();
+</script>
