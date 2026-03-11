@@ -17,7 +17,7 @@ const EMPLOYEE_SHEET_ID = '1HigaSfRMDBEUbDGlSfA8L2foDTO4D_DShhd3QCL5tw4';
 // ============================================================
 
 function doGet(e) {
-  return HtmlService.createTemplateFromFile('index')
+  return HtmlService.createTemplateFromFile('Index')
     .evaluate()
     .setTitle('OPS Trip Monitoring System')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
