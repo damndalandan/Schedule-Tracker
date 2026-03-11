@@ -1,573 +1,492 @@
 // ============================================================
-// OPS TRIP MONITORING SYSTEM — Code.gs
-// Google Apps Script Backend
+// OPS TRIP MONITORING SYSTEM
+// Code.gs — Main Server-Side Script
 // ============================================================
 
-const SHEET_VEHICLES   = 'Vehicles';
-const SHEET_TRIPS      = 'Trips';
-const SHEET_SETTINGS   = 'Settings';
-const SHEET_RENEWALS   = 'Renewal Alerts';
-const SHEET_EMPLOYEES  = 'Employees'; // local fallback; replace with IMPORTRANGE if needed
+// ── CONFIGURATION ───────────────────────────────────────────
+const CONFIG = {
+  SPREADSHEET_ID: 'YOUR_SPREADSHEET_ID_HERE', // ← Replace with your Sheet ID
+  SHEETS: {
+    EMPLOYEES:      'Employees',
+    VEHICLES:       'Vehicles',
+    TRIPS:          'Trips',
+    SETTINGS:       'Settings',
+    RENEWAL_ALERTS: 'Renewal Alerts'
+  }
+};
 
-// Replace with your employee sheet ID when ready
-const EMPLOYEE_SHEET_ID = '1HigaSfRMDBEUbDGlSfA8L2foDTO4D_DShhd3QCL5tw4';
-
-// ============================================================
-// WEB APP ENTRY POINTS
-// ============================================================
-
+// ── ENTRY POINT ─────────────────────────────────────────────
 function doGet(e) {
-  return HtmlService.createTemplateFromFile('Index')
+  return HtmlService
+    .createTemplateFromFile('Index')
     .evaluate()
     .setTitle('OPS Trip Monitoring System')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
+// Include helper for HTML templates
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
-// ============================================================
-// SHEET INITIALIZATION
-// ============================================================
-
-function initializeSheets() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  _ensureVehiclesSheet(ss);
-  _ensureTripsSheet(ss);
-  _ensureSettingsSheet(ss);
-  _ensureRenewalAlertsSheet(ss);
-  _ensureEmployeesSheet(ss);
-  return { success: true, message: 'All sheets initialized.' };
+// ── SPREADSHEET HELPER ───────────────────────────────────────
+function getSheet(name) {
+  return SpreadsheetApp
+    .openById(CONFIG.SPREADSHEET_ID)
+    .getSheetByName(name);
 }
 
-function _ensureVehiclesSheet(ss) {
-  let sh = ss.getSheetByName(SHEET_VEHICLES);
-  if (!sh) {
-    sh = ss.insertSheet(SHEET_VEHICLES);
-    sh.appendRow([
+function getSheetData(name) {
+  const sheet = getSheet(name);
+  const data  = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+  const headers = data[0];
+  return data.slice(1).map(row => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = row[i]; });
+    return obj;
+  });
+}
+
+// ── SETUP: Initialize Sheet Structure ───────────────────────
+function setupSheets() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+
+  const sheetsConfig = {
+    'Vehicles': [
       'Vehicle ID','Plate Number','Vehicle Type','Brand/Model',
       'Beginning Mileage','Status','Insurance Expiry Date','Insurance PDF Link',
       'LTO Expiry Date','LTO PDF Link','Notes','Created At','Updated At'
-    ]);
-    sh.getRange(1,1,1,13).setFontWeight('bold').setBackground('#1a3c5e').setFontColor('#ffffff');
-    sh.setFrozenRows(1);
-  }
-}
-
-function _ensureTripsSheet(ss) {
-  let sh = ss.getSheetByName(SHEET_TRIPS);
-  if (!sh) {
-    sh = ss.insertSheet(SHEET_TRIPS);
-    sh.appendRow([
+    ],
+    'Trips': [
       'Trip ID','Request Date','Requestor Employee ID','Requestor Name',
       'Trip Type','Purpose','Related JO','From Location','To Location',
       'Planned Start DateTime','Planned End DateTime','Vehicle ID','Plate Number',
       'Driver Employee ID','Driver Name','Status','Approved By',
       'Approval/Rejection Date','Rejection Reason','Cancel Reason',
       'Actual Start DateTime','Actual End DateTime','Start Mileage','End Mileage',
-      'Distance Travelled','GPS / Proof Link','Remarks','Updated At','Updated By'
-    ]);
-    sh.getRange(1,1,1,29).setFontWeight('bold').setBackground('#1a3c5e').setFontColor('#ffffff');
-    sh.setFrozenRows(1);
-  }
-}
+      'Distance Travelled','GPS/Proof Link','Remarks','Updated At','Updated By'
+    ],
+    'Settings': [
+      'Category','Value','Sort Order'
+    ],
+    'Renewal Alerts': [
+      'Vehicle ID','Plate Number','Document Type','Expiry Date','Days Left','Alert Status'
+    ]
+  };
 
-function _ensureSettingsSheet(ss) {
-  let sh = ss.getSheetByName(SHEET_SETTINGS);
-  if (!sh) {
-    sh = ss.insertSheet(SHEET_SETTINGS);
-    sh.appendRow(['Category','Value']);
-    sh.getRange(1,1,1,2).setFontWeight('bold').setBackground('#1a3c5e').setFontColor('#ffffff');
-    const defaults = [
-      ['Trip Type','Owner Errand'],
-      ['Trip Type','Supplier Delivery - Ormoc'],
-      ['Trip Type','Supplier Delivery - Outside Ormoc'],
-      ['Trip Type','Signage Installation'],
-      ['Trip Type','Other'],
-      ['Vehicle Status','Active'],
-      ['Vehicle Status','Under Repair'],
-      ['Vehicle Status','Inactive'],
-      ['Trip Status','Draft'],
-      ['Trip Status','Submitted'],
-      ['Trip Status','Approved'],
-      ['Trip Status','Rejected'],
-      ['Trip Status','Cancelled'],
-      ['Trip Status','Completed'],
-      ['Vehicle Type','Van'],
-      ['Vehicle Type','Truck'],
-      ['Vehicle Type','Motorcycle'],
-      ['Vehicle Type','Car'],
-    ];
-    sh.getRange(2, 1, defaults.length, 2).setValues(defaults);
-  }
-}
-
-function _ensureRenewalAlertsSheet(ss) {
-  let sh = ss.getSheetByName(SHEET_RENEWALS);
-  if (!sh) {
-    sh = ss.insertSheet(SHEET_RENEWALS);
-    sh.appendRow(['Vehicle ID','Plate Number','Document Type','Expiry Date','Days Left','Alert Status']);
-    sh.getRange(1,1,1,6).setFontWeight('bold').setBackground('#1a3c5e').setFontColor('#ffffff');
-    sh.setFrozenRows(1);
-  }
-}
-
-function _ensureEmployeesSheet(ss) {
-  let sh = ss.getSheetByName(SHEET_EMPLOYEES);
-  if (!sh) {
-    sh = ss.insertSheet(SHEET_EMPLOYEES);
-    sh.appendRow(['Employee ID','Full Name','Email','Department','Active']);
-    sh.getRange(1,1,1,5).setFontWeight('bold').setBackground('#1a3c5e').setFontColor('#ffffff');
-    sh.setFrozenRows(1);
-    // Sample employees
-    sh.appendRow(['EMP-001','Juan dela Cruz','juan@example.com','Operations','Yes']);
-    sh.appendRow(['EMP-002','Maria Santos','maria@example.com','Admin','Yes']);
-    sh.appendRow(['EMP-003','Pedro Reyes','pedro@example.com','Driver','Yes']);
-  }
-}
-
-// ============================================================
-// ID GENERATORS
-// ============================================================
-
-function _generateVehicleId() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEET_VEHICLES);
-  const year = new Date().getFullYear();
-  const lastRow = sh.getLastRow();
-  let seq = 1;
-  if (lastRow > 1) {
-    const ids = sh.getRange(2, 1, lastRow - 1, 1).getValues().flat().filter(String);
-    const nums = ids.map(id => parseInt(id.split('-')[2] || '0'));
-    seq = Math.max(...nums) + 1;
-  }
-  return `V-${year}-${String(seq).padStart(4,'0')}`;
-}
-
-function _generateTripId() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEET_TRIPS);
-  const year = new Date().getFullYear();
-  const lastRow = sh.getLastRow();
-  let seq = 1;
-  if (lastRow > 1) {
-    const ids = sh.getRange(2, 1, lastRow - 1, 1).getValues().flat().filter(String);
-    const nums = ids.map(id => parseInt(id.split('-')[2] || '0'));
-    seq = Math.max(...nums) + 1;
-  }
-  return `T-${year}-${String(seq).padStart(4,'0')}`;
-}
-
-// ============================================================
-// VEHICLES CRUD
-// ============================================================
-
-function getVehicles() {
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_VEHICLES);
-  const data = sh.getDataRange().getValues();
-  if (data.length <= 1) return [];
-  const headers = data[0];
-  return data.slice(1).map(row => {
-    const obj = {};
-    headers.forEach((h, i) => obj[h] = row[i]);
-    return obj;
+  Object.entries(sheetsConfig).forEach(([name, headers]) => {
+    let sheet = ss.getSheetByName(name);
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+      sheet.appendRow(headers);
+      sheet.getRange(1, 1, 1, headers.length)
+        .setFontWeight('bold')
+        .setBackground('#1a1a2e')
+        .setFontColor('#ffffff');
+      sheet.setFrozenRows(1);
+    }
   });
+
+  // Seed Settings if empty
+  seedSettings();
+}
+
+function seedSettings() {
+  const sheet = getSheet('Settings');
+  const data  = sheet.getDataRange().getValues();
+  if (data.length > 1) return;
+
+  const settings = [
+    ['Trip Type', 'Owner Errand', 1],
+    ['Trip Type', 'Supplier Delivery - Ormoc', 2],
+    ['Trip Type', 'Supplier Delivery - Outside Ormoc', 3],
+    ['Trip Type', 'Signage Installation', 4],
+    ['Trip Type', 'Other', 5],
+    ['Vehicle Type', 'Van', 1],
+    ['Vehicle Type', 'Truck', 2],
+    ['Vehicle Type', 'Motorcycle', 3],
+    ['Vehicle Type', 'Car', 4],
+    ['Vehicle Type', 'Tricycle', 5],
+    ['Vehicle Status', 'Active', 1],
+    ['Vehicle Status', 'Under Repair', 2],
+    ['Vehicle Status', 'Inactive', 3],
+    ['Trip Status', 'Draft', 1],
+    ['Trip Status', 'Submitted', 2],
+    ['Trip Status', 'Approved', 3],
+    ['Trip Status', 'Rejected', 4],
+    ['Trip Status', 'Cancelled', 5],
+    ['Trip Status', 'Completed', 6],
+  ];
+  settings.forEach(row => sheet.appendRow(row));
+}
+
+// ── ID GENERATION ────────────────────────────────────────────
+function generateId(prefix, sheetName, idColumn) {
+  const sheet = getSheet(sheetName);
+  const year  = new Date().getFullYear();
+  const data  = sheet.getDataRange().getValues();
+  if (data.length <= 1) return `${prefix}-${year}-0001`;
+
+  const ids = data.slice(1)
+    .map(r => r[0])
+    .filter(id => id && String(id).startsWith(`${prefix}-${year}-`));
+
+  if (ids.length === 0) return `${prefix}-${year}-0001`;
+
+  const nums = ids.map(id => parseInt(id.split('-')[2], 10));
+  const next = Math.max(...nums) + 1;
+  return `${prefix}-${year}-${String(next).padStart(4, '0')}`;
+}
+
+// ── EMPLOYEES ────────────────────────────────────────────────
+function getEmployees() {
+  return getSheetData(CONFIG.SHEETS.EMPLOYEES);
+}
+
+function getEmployeeById(employeeId) {
+  const employees = getEmployees();
+  return employees.find(e => String(e['Employee ID']) === String(employeeId)) || null;
+}
+
+function getEmployeesByRole(role) {
+  return getEmployees().filter(e => e['Role'] === role);
+}
+
+// ── SETTINGS ─────────────────────────────────────────────────
+function getSettings() {
+  const data = getSheetData(CONFIG.SHEETS.SETTINGS);
+  const grouped = {};
+  data.forEach(row => {
+    const cat = row['Category'];
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(row['Value']);
+  });
+  return grouped;
+}
+
+// ── VEHICLES ─────────────────────────────────────────────────
+function getVehicles() {
+  return getSheetData(CONFIG.SHEETS.VEHICLES);
+}
+
+function getActiveVehicles() {
+  return getVehicles().filter(v => v['Status'] === 'Active');
 }
 
 function getVehicleById(vehicleId) {
-  const vehicles = getVehicles();
-  return vehicles.find(v => v['Vehicle ID'] === vehicleId) || null;
+  return getVehicles().find(v => String(v['Vehicle ID']) === String(vehicleId)) || null;
 }
 
-function addVehicle(data) {
+function saveVehicle(data) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sh = ss.getSheetByName(SHEET_VEHICLES);
+    const sheet = getSheet(CONFIG.SHEETS.VEHICLES);
+    const now   = new Date();
+
+    // Validate required fields
+    if (!data['Plate Number']) return { success: false, message: 'Plate Number is required.' };
+    if (!data['Vehicle Type']) return { success: false, message: 'Vehicle Type is required.' };
+    if (!data['Status'])       return { success: false, message: 'Status is required.' };
+
     // Check plate uniqueness
     const existing = getVehicles();
-    if (existing.some(v => v['Plate Number'] === data.plateNumber)) {
-      return { success: false, message: 'Plate number already exists.' };
+    const duplicate = existing.find(v =>
+      v['Plate Number'].toLowerCase() === data['Plate Number'].toLowerCase() &&
+      v['Vehicle ID'] !== data['Vehicle ID']
+    );
+    if (duplicate) return { success: false, message: 'Plate Number already exists.' };
+
+    if (data['Vehicle ID']) {
+      // UPDATE
+      const allData = sheet.getDataRange().getValues();
+      const headers = allData[0];
+      const rowIdx  = allData.findIndex((r, i) => i > 0 && String(r[0]) === String(data['Vehicle ID']));
+      if (rowIdx === -1) return { success: false, message: 'Vehicle not found.' };
+
+      headers.forEach((h, i) => {
+        if (data[h] !== undefined && h !== 'Vehicle ID' && h !== 'Created At') {
+          sheet.getRange(rowIdx + 1, i + 1).setValue(data[h]);
+        }
+      });
+      sheet.getRange(rowIdx + 1, headers.indexOf('Updated At') + 1).setValue(now);
+      return { success: true, message: 'Vehicle updated successfully.' };
+
+    } else {
+      // CREATE
+      const vehicleId = generateId('V', CONFIG.SHEETS.VEHICLES, 'Vehicle ID');
+      const headers   = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      const row       = headers.map(h => {
+        if (h === 'Vehicle ID')  return vehicleId;
+        if (h === 'Created At')  return now;
+        if (h === 'Updated At')  return now;
+        return data[h] !== undefined ? data[h] : '';
+      });
+      sheet.appendRow(row);
+      return { success: true, message: 'Vehicle created successfully.', vehicleId };
     }
-    const id = _generateVehicleId();
-    const now = new Date();
-    sh.appendRow([
-      id, data.plateNumber, data.vehicleType, data.brandModel || '',
-      data.beginningMileage || 0, data.status || 'Active',
-      data.insuranceExpiry || '', data.insurancePdfLink || '',
-      data.ltoExpiry || '', data.ltoPdfLink || '',
-      data.notes || '', now, now
-    ]);
-    return { success: true, id, message: 'Vehicle added successfully.' };
   } catch (e) {
     return { success: false, message: e.message };
   }
 }
 
-function updateVehicle(vehicleId, data) {
-  try {
-    const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_VEHICLES);
-    const allData = sh.getDataRange().getValues();
-    const rowIndex = allData.findIndex((r, i) => i > 0 && r[0] === vehicleId);
-    if (rowIndex === -1) return { success: false, message: 'Vehicle not found.' };
-    const now = new Date();
-    const r = rowIndex + 1;
-    sh.getRange(r, 2).setValue(data.plateNumber);
-    sh.getRange(r, 3).setValue(data.vehicleType);
-    sh.getRange(r, 4).setValue(data.brandModel || '');
-    sh.getRange(r, 5).setValue(data.beginningMileage || 0);
-    sh.getRange(r, 6).setValue(data.status);
-    sh.getRange(r, 7).setValue(data.insuranceExpiry || '');
-    sh.getRange(r, 8).setValue(data.insurancePdfLink || '');
-    sh.getRange(r, 9).setValue(data.ltoExpiry || '');
-    sh.getRange(r, 10).setValue(data.ltoPdfLink || '');
-    sh.getRange(r, 11).setValue(data.notes || '');
-    sh.getRange(r, 13).setValue(now);
-    return { success: true, message: 'Vehicle updated.' };
-  } catch (e) {
-    return { success: false, message: e.message };
-  }
+function deleteVehicle(vehicleId) {
+  // Soft delete — mark as Inactive
+  return saveVehicle({ 'Vehicle ID': vehicleId, 'Status': 'Inactive' });
 }
 
-// ============================================================
-// TRIPS CRUD
-// ============================================================
-
+// ── TRIPS ────────────────────────────────────────────────────
 function getTrips() {
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_TRIPS);
-  const data = sh.getDataRange().getValues();
-  if (data.length <= 1) return [];
-  const headers = data[0];
-  return data.slice(1).map(row => {
-    const obj = {};
-    headers.forEach((h, i) => obj[h] = row[i]);
-    return obj;
-  });
+  return getSheetData(CONFIG.SHEETS.TRIPS);
 }
 
 function getTripById(tripId) {
-  const trips = getTrips();
-  return trips.find(t => t['Trip ID'] === tripId) || null;
+  return getTrips().find(t => String(t['Trip ID']) === String(tripId)) || null;
 }
 
-function createTrip(data) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sh = ss.getSheetByName(SHEET_TRIPS);
-    if (!data.purpose) return { success: false, message: 'Purpose is required.' };
-    if (!data.fromLocation) return { success: false, message: 'From Location is required.' };
-    if (!data.toLocation) return { success: false, message: 'To Location is required.' };
-    if (!data.plannedStart) return { success: false, message: 'Planned Start is required.' };
-    if (!data.plannedEnd) return { success: false, message: 'Planned End is required.' };
-    const id = _generateTripId();
-    const now = new Date();
-    const user = Session.getActiveUser().getEmail();
-    sh.appendRow([
-      id, now,
-      data.requestorEmpId || '', data.requestorName || '',
-      data.tripType || '', data.purpose,
-      data.relatedJO || '', data.fromLocation, data.toLocation,
-      data.plannedStart, data.plannedEnd,
-      data.vehicleId || '', data.plateNumber || '',
-      data.driverEmpId || '', data.driverName || '',
-      'Draft', '', '', '', '',
-      '', '', '', '', '', '', '',
-      now, user
-    ]);
-    return { success: true, id, message: 'Trip created as Draft.' };
-  } catch (e) {
-    return { success: false, message: e.message };
-  }
+function getTripsByStatus(status) {
+  return getTrips().filter(t => t['Status'] === status);
 }
 
-function updateTripStatus(tripId, action, extras) {
-  try {
-    const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_TRIPS);
-    const allData = sh.getDataRange().getValues();
-    const rowIndex = allData.findIndex((r, i) => i > 0 && r[0] === tripId);
-    if (rowIndex === -1) return { success: false, message: 'Trip not found.' };
-    const now = new Date();
-    const user = Session.getActiveUser().getEmail();
-    const r = rowIndex + 1;
-    const currentStatus = allData[rowIndex][15];
+function getTripsByEmployee(employeeId) {
+  return getTrips().filter(t => String(t['Requestor Employee ID']) === String(employeeId));
+}
 
-    if (action === 'submit') {
-      if (currentStatus !== 'Draft') return { success: false, message: 'Only Draft trips can be submitted.' };
-      if (!allData[rowIndex][11]) return { success: false, message: 'Vehicle is required before submitting.' };
-      if (!allData[rowIndex][13]) return { success: false, message: 'Driver is required before submitting.' };
-      sh.getRange(r, 16).setValue('Submitted');
-    } else if (action === 'approve') {
-      if (currentStatus !== 'Submitted') return { success: false, message: 'Only Submitted trips can be approved.' };
-      sh.getRange(r, 16).setValue('Approved');
-      sh.getRange(r, 17).setValue(user);
-      sh.getRange(r, 18).setValue(now);
-    } else if (action === 'reject') {
-      if (!extras.reason) return { success: false, message: 'Rejection reason is required.' };
-      sh.getRange(r, 16).setValue('Rejected');
-      sh.getRange(r, 17).setValue(user);
-      sh.getRange(r, 18).setValue(now);
-      sh.getRange(r, 19).setValue(extras.reason);
-    } else if (action === 'cancel') {
-      if (!['Draft','Submitted','Approved'].includes(currentStatus))
-        return { success: false, message: 'Cannot cancel a trip in current status.' };
-      if (!extras.reason) return { success: false, message: 'Cancel reason is required.' };
-      sh.getRange(r, 16).setValue('Cancelled');
-      sh.getRange(r, 20).setValue(extras.reason);
-    } else if (action === 'complete') {
-      if (currentStatus !== 'Approved') return { success: false, message: 'Only Approved trips can be completed.' };
-      if (!extras.actualStart) return { success: false, message: 'Actual Start is required.' };
-      if (!extras.actualEnd) return { success: false, message: 'Actual End is required.' };
-      if (!extras.startMileage && extras.startMileage !== 0) return { success: false, message: 'Start mileage is required.' };
-      if (!extras.endMileage && extras.endMileage !== 0) return { success: false, message: 'End mileage is required.' };
-      if (Number(extras.endMileage) < Number(extras.startMileage))
-        return { success: false, message: 'End mileage cannot be less than start mileage.' };
-      const distance = Number(extras.endMileage) - Number(extras.startMileage);
-      sh.getRange(r, 16).setValue('Completed');
-      sh.getRange(r, 21).setValue(extras.actualStart);
-      sh.getRange(r, 22).setValue(extras.actualEnd);
-      sh.getRange(r, 23).setValue(extras.startMileage);
-      sh.getRange(r, 24).setValue(extras.endMileage);
-      sh.getRange(r, 25).setValue(distance);
-      sh.getRange(r, 26).setValue(extras.proofLink || '');
-      sh.getRange(r, 27).setValue(extras.remarks || '');
+function saveTrip(data) {
+  try {
+    const sheet = getSheet(CONFIG.SHEETS.TRIPS);
+    const now   = new Date();
+
+    // Validate based on status
+    const status = data['Status'] || 'Draft';
+
+    if (status === 'Submitted') {
+      const required = ['Requestor Employee ID','Trip Type','Purpose','From Location','To Location','Planned Start DateTime','Planned End DateTime','Vehicle ID','Driver Employee ID'];
+      for (const field of required) {
+        if (!data[field]) return { success: false, message: `${field} is required before submitting.` };
+      }
     }
 
-    sh.getRange(r, 28).setValue(now);
-    sh.getRange(r, 29).setValue(user);
+    if (status === 'Rejected' && !data['Rejection Reason']) {
+      return { success: false, message: 'Rejection Reason is required.' };
+    }
 
-    // Send email notifications
-    _sendTripNotification(action, tripId, allData[rowIndex]);
+    if (status === 'Cancelled' && !data['Cancel Reason']) {
+      return { success: false, message: 'Cancel Reason is required.' };
+    }
 
-    return { success: true, message: `Trip ${action}d successfully.` };
-  } catch (e) {
-    return { success: false, message: e.message };
-  }
-}
+    if (status === 'Completed') {
+      if (!data['Actual Start DateTime']) return { success: false, message: 'Actual Start DateTime is required.' };
+      if (!data['Actual End DateTime'])   return { success: false, message: 'Actual End DateTime is required.' };
+      if (!data['Start Mileage'])         return { success: false, message: 'Start Mileage is required.' };
+      if (!data['End Mileage'])           return { success: false, message: 'End Mileage is required.' };
+      if (Number(data['End Mileage']) < Number(data['Start Mileage'])) {
+        return { success: false, message: 'End Mileage cannot be less than Start Mileage.' };
+      }
+      data['Distance Travelled'] = Number(data['End Mileage']) - Number(data['Start Mileage']);
+    }
 
-function updateTripDraft(tripId, data) {
-  try {
-    const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_TRIPS);
-    const allData = sh.getDataRange().getValues();
-    const rowIndex = allData.findIndex((r, i) => i > 0 && r[0] === tripId);
-    if (rowIndex === -1) return { success: false, message: 'Trip not found.' };
-    if (allData[rowIndex][15] !== 'Draft') return { success: false, message: 'Only Draft trips can be edited.' };
-    const now = new Date();
-    const user = Session.getActiveUser().getEmail();
-    const r = rowIndex + 1;
-    sh.getRange(r, 3).setValue(data.requestorEmpId || '');
-    sh.getRange(r, 4).setValue(data.requestorName || '');
-    sh.getRange(r, 5).setValue(data.tripType || '');
-    sh.getRange(r, 6).setValue(data.purpose || '');
-    sh.getRange(r, 7).setValue(data.relatedJO || '');
-    sh.getRange(r, 8).setValue(data.fromLocation || '');
-    sh.getRange(r, 9).setValue(data.toLocation || '');
-    sh.getRange(r, 10).setValue(data.plannedStart || '');
-    sh.getRange(r, 11).setValue(data.plannedEnd || '');
-    sh.getRange(r, 12).setValue(data.vehicleId || '');
-    sh.getRange(r, 13).setValue(data.plateNumber || '');
-    sh.getRange(r, 14).setValue(data.driverEmpId || '');
-    sh.getRange(r, 15).setValue(data.driverName || '');
-    sh.getRange(r, 28).setValue(now);
-    sh.getRange(r, 29).setValue(user);
-    return { success: true, message: 'Draft updated.' };
-  } catch (e) {
-    return { success: false, message: e.message };
-  }
-}
+    // Auto-fill from Vehicle
+    if (data['Vehicle ID']) {
+      const vehicle = getVehicleById(data['Vehicle ID']);
+      if (vehicle) data['Plate Number'] = vehicle['Plate Number'];
+    }
 
-// ============================================================
-// EMPLOYEES LOOKUP
-// ============================================================
+    // Auto-fill from Employee (Requestor)
+    if (data['Requestor Employee ID']) {
+      const emp = getEmployeeById(data['Requestor Employee ID']);
+      if (emp) data['Requestor Name'] = emp['Employee Name'];
+    }
 
-function getEmployees() {
-  try {
-    const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_EMPLOYEES);
-    if (!sh) return [];
-    const data = sh.getDataRange().getValues();
-    if (data.length <= 1) return [];
-    const headers = data[0];
-    return data.slice(1)
-      .filter(row => row[4] === 'Yes')
-      .map(row => {
-        const obj = {};
-        headers.forEach((h, i) => obj[h] = row[i]);
-        return obj;
+    // Auto-fill Driver Name
+    if (data['Driver Employee ID']) {
+      const driver = getEmployeeById(data['Driver Employee ID']);
+      if (driver) data['Driver Name'] = driver['Employee Name'];
+    }
+
+    if (data['Trip ID']) {
+      // UPDATE
+      const allData = sheet.getDataRange().getValues();
+      const headers = allData[0];
+      const rowIdx  = allData.findIndex((r, i) => i > 0 && String(r[0]) === String(data['Trip ID']));
+      if (rowIdx === -1) return { success: false, message: 'Trip not found.' };
+
+      // Status transition guard
+      const currentStatus = allData[rowIdx][headers.indexOf('Status')];
+      if (!isValidTransition(currentStatus, status)) {
+        return { success: false, message: `Cannot change status from ${currentStatus} to ${status}.` };
+      }
+
+      headers.forEach((h, i) => {
+        if (data[h] !== undefined && h !== 'Trip ID' && h !== 'Request Date') {
+          sheet.getRange(rowIdx + 1, i + 1).setValue(data[h]);
+        }
       });
-  } catch (e) {
-    return [];
-  }
-}
+      sheet.getRange(rowIdx + 1, headers.indexOf('Updated At') + 1).setValue(now);
+      sheet.getRange(rowIdx + 1, headers.indexOf('Updated By') + 1).setValue(data['Updated By'] || '');
 
-function getEmployeeById(empId) {
-  const employees = getEmployees();
-  return employees.find(e => e['Employee ID'] === empId) || null;
-}
+      // Set approval timestamp
+      if (status === 'Approved' || status === 'Rejected') {
+        sheet.getRange(rowIdx + 1, headers.indexOf('Approval/Rejection Date') + 1).setValue(now);
+      }
 
-// ============================================================
-// SETTINGS
-// ============================================================
+      return { success: true, message: `Trip ${status} successfully.` };
 
-function getSettings() {
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SETTINGS);
-  const data = sh.getDataRange().getValues();
-  const result = {};
-  data.slice(1).forEach(row => {
-    const cat = row[0], val = row[1];
-    if (!result[cat]) result[cat] = [];
-    result[cat].push(val);
-  });
-  return result;
-}
-
-// ============================================================
-// RENEWAL ALERTS
-// ============================================================
-
-function refreshRenewalAlerts() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(SHEET_RENEWALS);
-  // Clear existing data (keep header)
-  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 6).clearContent();
-  const vehicles = getVehicles();
-  const today = new Date();
-  const rows = [];
-  vehicles.forEach(v => {
-    ['Insurance', 'LTO'].forEach(docType => {
-      const expiryField = docType === 'Insurance' ? 'Insurance Expiry Date' : 'LTO Expiry Date';
-      const expiry = v[expiryField];
-      if (!expiry) return;
-      const expiryDate = new Date(expiry);
-      const daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-      let alertStatus = 'OK';
-      if (daysLeft < 0) alertStatus = 'Expired';
-      else if (daysLeft <= 30) alertStatus = 'Due in 30 Days';
-      rows.push([v['Vehicle ID'], v['Plate Number'], docType, expiryDate, daysLeft, alertStatus]);
-    });
-  });
-  if (rows.length > 0) sh.getRange(2, 1, rows.length, 6).setValues(rows);
-  return { success: true, alerts: rows.length };
-}
-
-function getRenewalAlerts() {
-  refreshRenewalAlerts();
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_RENEWALS);
-  const data = sh.getDataRange().getValues();
-  if (data.length <= 1) return [];
-  const headers = data[0];
-  return data.slice(1).map(row => {
-    const obj = {};
-    headers.forEach((h, i) => obj[h] = row[i]);
-    return obj;
-  });
-}
-
-// ============================================================
-// EMAIL NOTIFICATIONS
-// ============================================================
-
-function _sendTripNotification(action, tripId, rowData) {
-  try {
-    const approverEmail = 'YOUR_APPROVER_EMAIL@example.com'; // TODO: replace
-    const adminEmail = Session.getActiveUser().getEmail();
-    let subject = '', body = '';
-
-    if (action === 'submit') {
-      subject = `[OPS] Trip ${tripId} Submitted for Approval`;
-      body = `A new trip request (${tripId}) has been submitted and is awaiting your approval.\n\nPurpose: ${rowData[5]}\nFrom: ${rowData[7]} → To: ${rowData[8]}\nPlanned Start: ${rowData[9]}`;
-      MailApp.sendEmail(approverEmail, subject, body);
-    } else if (action === 'approve') {
-      subject = `[OPS] Trip ${tripId} Approved`;
-      body = `Your trip request (${tripId}) has been approved.\n\nPurpose: ${rowData[5]}\nFrom: ${rowData[7]} → To: ${rowData[8]}`;
-      MailApp.sendEmail(adminEmail, subject, body);
-    } else if (action === 'reject') {
-      subject = `[OPS] Trip ${tripId} Rejected`;
-      body = `Your trip request (${tripId}) has been rejected.\n\nPurpose: ${rowData[5]}\nRejection Reason: ${rowData[18]}`;
-      MailApp.sendEmail(adminEmail, subject, body);
+    } else {
+      // CREATE
+      const tripId  = generateId('T', CONFIG.SHEETS.TRIPS, 'Trip ID');
+      const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      const row     = headers.map(h => {
+        if (h === 'Trip ID')      return tripId;
+        if (h === 'Request Date') return now;
+        if (h === 'Status')       return 'Draft';
+        if (h === 'Updated At')   return now;
+        if (h === 'Updated By')   return data['Updated By'] || '';
+        return data[h] !== undefined ? data[h] : '';
+      });
+      sheet.appendRow(row);
+      return { success: true, message: 'Trip created successfully.', tripId };
     }
   } catch (e) {
-    console.log('Email error: ' + e.message);
+    return { success: false, message: e.message };
   }
 }
 
-function sendRenewalWarningEmails() {
-  const alerts = getRenewalAlerts();
-  const adminEmail = 'YOUR_ADMIN_EMAIL@example.com'; // TODO: replace
-  const expiring = alerts.filter(a => a['Alert Status'] !== 'OK');
-  if (expiring.length === 0) return;
-  let body = 'The following vehicle documents need attention:\n\n';
-  expiring.forEach(a => {
-    body += `• Vehicle ${a['Plate Number']} — ${a['Document Type']} — ${a['Alert Status']} (${a['Days Left']} days left)\n`;
-  });
-  MailApp.sendEmail(adminEmail, '[OPS] Vehicle Document Renewal Alert', body);
+// Status transition rules
+function isValidTransition(from, to) {
+  const allowed = {
+    'Draft':     ['Draft', 'Submitted', 'Cancelled'],
+    'Submitted': ['Submitted', 'Approved', 'Rejected', 'Cancelled'],
+    'Approved':  ['Approved', 'Completed', 'Cancelled'],
+    'Rejected':  ['Rejected'],
+    'Cancelled': ['Cancelled'],
+    'Completed': ['Completed']
+  };
+  return (allowed[from] || []).includes(to);
 }
 
-// ============================================================
-// DAILY TRIGGER SETUP
-// ============================================================
+// ── RENEWAL ALERTS ───────────────────────────────────────────
+function refreshRenewalAlerts() {
+  try {
+    const sheet    = getSheet(CONFIG.SHEETS.RENEWAL_ALERTS);
+    const vehicles = getVehicles();
+    const now      = new Date();
+    now.setHours(0, 0, 0, 0);
 
-function setupDailyTrigger() {
-  // Run once to install daily trigger
-  ScriptApp.newTrigger('sendRenewalWarningEmails')
-    .timeBased()
-    .everyDays(1)
-    .atHour(8)
-    .create();
-  return { success: true, message: 'Daily renewal trigger set for 8AM.' };
+    // Clear existing data (keep header)
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, 6).clearContent();
+
+    const rows = [];
+    vehicles.forEach(v => {
+      ['Insurance', 'LTO'].forEach(docType => {
+        const expiryVal = v[`${docType} Expiry Date`];
+        if (!expiryVal) return;
+
+        const expiry   = new Date(expiryVal);
+        expiry.setHours(0, 0, 0, 0);
+        const daysLeft = Math.round((expiry - now) / (1000 * 60 * 60 * 24));
+        let alertStatus = 'OK';
+        if (daysLeft < 0)  alertStatus = 'Expired';
+        else if (daysLeft <= 30) alertStatus = 'Due in 30 Days';
+
+        rows.push([
+          v['Vehicle ID'],
+          v['Plate Number'],
+          `${docType} Expiry`,
+          expiryVal,
+          daysLeft,
+          alertStatus
+        ]);
+      });
+    });
+
+    if (rows.length > 0) {
+      sheet.getRange(2, 1, rows.length, 6).setValues(rows);
+    }
+
+    return { success: true, data: rows };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
 }
 
-// ============================================================
-// REPORTS
-// ============================================================
+// Daily trigger — call this via Apps Script time-based trigger
+function dailyRenewalCheck() {
+  refreshRenewalAlerts();
+}
 
+// ── REPORTS ──────────────────────────────────────────────────
 function getReportTripsByVehicle() {
   const trips = getTrips().filter(t => t['Status'] === 'Completed');
-  const map = {};
+  const map   = {};
   trips.forEach(t => {
     const key = t['Vehicle ID'] || 'Unknown';
-    if (!map[key]) map[key] = { vehicleId: key, plateNumber: t['Plate Number'], tripCount: 0, totalKm: 0 };
+    if (!map[key]) map[key] = { vehicleId: key, plateNumber: t['Plate Number'] || '', tripCount: 0, totalMileage: 0 };
     map[key].tripCount++;
-    map[key].totalKm += Number(t['Distance Travelled']) || 0;
+    map[key].totalMileage += Number(t['Distance Travelled']) || 0;
   });
   return Object.values(map);
 }
 
 function getReportTripsByDriver() {
   const trips = getTrips().filter(t => t['Status'] === 'Completed');
-  const map = {};
+  const map   = {};
   trips.forEach(t => {
     const key = t['Driver Employee ID'] || 'Unknown';
-    if (!map[key]) map[key] = { driverEmpId: key, driverName: t['Driver Name'], tripCount: 0, totalKm: 0 };
+    if (!map[key]) map[key] = { driverId: key, driverName: t['Driver Name'] || '', tripCount: 0, totalMileage: 0 };
     map[key].tripCount++;
-    map[key].totalKm += Number(t['Distance Travelled']) || 0;
+    map[key].totalMileage += Number(t['Distance Travelled']) || 0;
   });
   return Object.values(map);
 }
 
 function getReportTripsByType() {
   const trips = getTrips();
-  const map = {};
+  const map   = {};
   trips.forEach(t => {
     const key = t['Trip Type'] || 'Unknown';
-    if (!map[key]) map[key] = { tripType: key, count: 0 };
-    map[key].count++;
+    if (!map[key]) map[key] = { tripType: key, tripCount: 0 };
+    map[key].tripCount++;
   });
   return Object.values(map);
 }
 
 function getReportMileageSummary() {
   const vehicles = getVehicles();
-  const trips = getTrips().filter(t => t['Status'] === 'Completed');
+  const trips    = getTrips().filter(t => t['Status'] === 'Completed');
+
   return vehicles.map(v => {
-    const vTrips = trips.filter(t => t['Vehicle ID'] === v['Vehicle ID']);
-    const latestEnd = vTrips.length > 0 ? Math.max(...vTrips.map(t => Number(t['End Mileage']) || 0)) : 0;
-    const totalTravel = vTrips.reduce((s, t) => s + (Number(t['Distance Travelled']) || 0), 0);
+    const vTrips   = trips.filter(t => String(t['Vehicle ID']) === String(v['Vehicle ID']));
+    const totalKm  = vTrips.reduce((sum, t) => sum + (Number(t['Distance Travelled']) || 0), 0);
+    const lastTrip = vTrips.sort((a, b) => new Date(b['Actual End DateTime']) - new Date(a['Actual End DateTime']))[0];
     return {
-      vehicleId: v['Vehicle ID'], 
-      plateNumber: v['Plate Number'],
-      beginningMileage: v['Beginning Mileage'],
-      latestEndMileage: latestEnd,
-      totalTravel
+      vehicleId:        v['Vehicle ID'],
+      plateNumber:      v['Plate Number'],
+      beginningMileage: v['Beginning Mileage'] || 0,
+      latestEndMileage: lastTrip ? lastTrip['End Mileage'] : v['Beginning Mileage'] || 0,
+      totalRecorded:    totalKm
     };
   });
+}
+
+function getReportExpiringDocuments() {
+  refreshRenewalAlerts();
+  return getSheetData(CONFIG.SHEETS.RENEWAL_ALERTS)
+    .filter(r => r['Alert Status'] === 'Expired' || r['Alert Status'] === 'Due in 30 Days');
+}
+
+// ── BULK DATA LOADER ─────────────────────────────────────────
+// Single call to load all dropdown data needed by the UI
+function getAppData() {
+  try {
+    return {
+      success:   true,
+      employees: getEmployees(),
+      vehicles:  getActiveVehicles(),
+      settings:  getSettings()
+    };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
 }
