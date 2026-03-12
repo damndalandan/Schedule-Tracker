@@ -591,41 +591,33 @@ function getReportExpiringDocuments() {
 // ── BULK DATA LOADER ─────────────────────────────────────────
 function getAppData() {
   try {
-    var ss;
-    try {
-      ss = _getSS();
-    } catch (ssErr) {
-      Logger.log('_getSS() failed: ' + ssErr.message);
-      return { success: false, message: 'Cannot open spreadsheet: ' + ssErr.message };
-    }
+    var ss = _getSS();
 
     // Auto-initialize any missing sheets
-    try {
-      if (!ss.getSheetByName(CONFIG.SHEETS.EMPLOYEES))      _setupEmployeesSheet(ss);
-      if (!ss.getSheetByName(CONFIG.SHEETS.VEHICLES))       _setupVehiclesSheet(ss);
-      if (!ss.getSheetByName(CONFIG.SHEETS.TRIPS))          _setupTripsSheet(ss);
-      if (!ss.getSheetByName(CONFIG.SHEETS.SETTINGS))       _setupSettingsSheet(ss);
-      if (!ss.getSheetByName(CONFIG.SHEETS.RENEWAL_ALERTS)) _setupRenewalAlertsSheet(ss);
-    } catch (initErr) {
-      Logger.log('Sheet init failed: ' + initErr.message);
-    }
+    if (!ss.getSheetByName(CONFIG.SHEETS.EMPLOYEES))      _setupEmployeesSheet(ss);
+    if (!ss.getSheetByName(CONFIG.SHEETS.VEHICLES))       _setupVehiclesSheet(ss);
+    if (!ss.getSheetByName(CONFIG.SHEETS.TRIPS))          _setupTripsSheet(ss);
+    if (!ss.getSheetByName(CONFIG.SHEETS.SETTINGS))       _setupSettingsSheet(ss);
+    if (!ss.getSheetByName(CONFIG.SHEETS.RENEWAL_ALERTS)) _setupRenewalAlertsSheet(ss);
 
-    var employees = [];
-    var vehicles  = [];
-    var settings  = {};
+    var employees = getEmployees();
+    var vehicles  = getActiveVehicles();
+    var settings  = getSettings();
 
-    try { employees = getEmployees(); }    catch(e) { Logger.log('getEmployees error: ' + e.message); }
-    try { vehicles  = getActiveVehicles(); } catch(e) { Logger.log('getActiveVehicles error: ' + e.message); }
-    try { settings  = getSettings(); }    catch(e) { Logger.log('getSettings error: ' + e.message); }
-
+    // If employees sheet exists but is empty, seed it
     if (employees.length === 0) {
-      try { _setupEmployeesSheet(ss); employees = getEmployees(); } catch(e) {}
+      _setupEmployeesSheet(ss);
+      employees = getEmployees();
     }
+    // Same for settings
     if (Object.keys(settings).length === 0) {
-      try { _setupSettingsSheet(ss); settings = getSettings(); } catch(e) {}
+      _setupSettingsSheet(ss);
+      settings = getSettings();
     }
+    // Same for vehicles
     if (vehicles.length === 0) {
-      try { _setupVehiclesSheet(ss); vehicles = getActiveVehicles(); } catch(e) {}
+      _setupVehiclesSheet(ss);
+      vehicles = getActiveVehicles();
     }
 
     return {
@@ -635,7 +627,6 @@ function getAppData() {
       settings:  settings
     };
   } catch (e) {
-    Logger.log('getAppData FATAL: ' + e.message);
     return { success: false, message: 'getAppData error: ' + e.message };
   }
 }
