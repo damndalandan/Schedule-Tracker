@@ -29,38 +29,87 @@ var AppService = (function() {
 
   // ── SPLASH / LOGIN ─────────────────────────────────────────
   function _loadEmployeesForSplash() {
-    showLoader('Loading...');
+    // Show loading state inside splash card
+    var sel        = document.getElementById('userSelect');
+    var loginBtn   = document.getElementById('loginBtn');
+    var retryBtn   = document.getElementById('splashRetryBtn');
+    var splashMsg  = document.getElementById('splashLoadingMsg');
+
+    if (sel)       { sel.disabled = true; sel.innerHTML = '<option value="">Loading employees...</option>'; }
+    if (loginBtn)  { loginBtn.disabled = true; }
+    if (retryBtn)  { retryBtn.classList.add('hidden'); }
+    if (splashMsg) { splashMsg.classList.remove('hidden'); }
+
     google.script.run
       .withSuccessHandler(function(data) {
-        hideLoader();
-        if (!data.success) {
-          showToast('Failed to load employee data.', 'error');
+        if (splashMsg) splashMsg.classList.add('hidden');
+
+        if (!data || !data.success) {
+          _onSplashLoadError('Failed to load employee list. Please retry.');
           return;
         }
+
         _appData = data;
-        var sel = document.getElementById('userSelect');
-        data.employees.forEach(function(emp) {
-          var opt = document.createElement('option');
-          opt.value       = emp['Employee ID'];
-          opt.textContent = emp['Employee Name'] + ' (' + emp['Role'] + ')';
-          sel.appendChild(opt);
-        });
+
+        // Populate dropdown
+        if (sel) {
+          sel.innerHTML = '<option value="">— Select your name —</option>';
+          data.employees.forEach(function(emp) {
+            if (emp['Status'] === 'Active') {
+              var opt = document.createElement('option');
+              opt.value       = emp['Employee ID'];
+              opt.textContent = emp['Employee Name'] + ' (' + emp['Role'] + ')';
+              sel.appendChild(opt);
+            }
+          });
+          sel.disabled = false;
+        }
+
+        if (loginBtn) loginBtn.disabled = false;
       })
       .withFailureHandler(function(err) {
-        hideLoader();
-        showToast('Connection error: ' + err.message, 'error');
+        if (splashMsg) splashMsg.classList.add('hidden');
+        var msg = (err && err.message) ? err.message : 'Connection error. Please retry.';
+        _onSplashLoadError(msg);
       })
       .getAppData();
+  }
+
+  function _onSplashLoadError(msg) {
+    var sel       = document.getElementById('userSelect');
+    var loginBtn  = document.getElementById('loginBtn');
+    var retryBtn  = document.getElementById('splashRetryBtn');
+    var splashErr = document.getElementById('splashError');
+
+    if (sel)      { sel.disabled = true; sel.innerHTML = '<option value="">— Failed to load —</option>'; }
+    if (loginBtn) { loginBtn.disabled = true; }
+    if (retryBtn) { retryBtn.classList.remove('hidden'); }
+    if (splashErr){ splashErr.textContent = msg; splashErr.classList.remove('hidden'); }
+  }
+
+  // Called by retry button in splash card
+  function retryLoadEmployees() {
+    var splashErr = document.getElementById('splashError');
+    if (splashErr) splashErr.classList.add('hidden');
+    _loadEmployeesForSplash();
   }
 
   function loginUser() {
     var sel = document.getElementById('userSelect');
     var err = document.getElementById('splashError');
-    if (!sel.value) {
-      err.classList.remove('hidden');
+
+    // Guard: appData not loaded yet
+    if (!_appData) {
+      if (err) { err.textContent = 'Employee data not loaded yet. Please wait or retry.'; err.classList.remove('hidden'); }
       return;
     }
-    err.classList.add('hidden');
+
+    if (!sel || !sel.value) {
+      if (err) { err.textContent = 'Please select your name to continue.'; err.classList.remove('hidden'); }
+      return;
+    }
+
+    if (err) err.classList.add('hidden');
 
     var emp = null;
     for (var i = 0; i < _appData.employees.length; i++) {
@@ -71,7 +120,7 @@ var AppService = (function() {
     }
 
     if (!emp) {
-      showToast('Employee not found.', 'error');
+      showToast('Employee not found. Please retry.', 'error');
       return;
     }
 
@@ -86,9 +135,13 @@ var AppService = (function() {
   function logout() {
     _currentUser = null;
     _currentPage = null;
+    _appData     = null;
     document.getElementById('mainApp').classList.add('hidden');
     document.getElementById('splashScreen').classList.remove('hidden');
-    document.getElementById('userSelect').value = '';
+    // Reset splash state and reload employees fresh
+    var err = document.getElementById('splashError');
+    if (err) err.classList.add('hidden');
+    _loadEmployeesForSplash();
   }
 
   function _renderUserUI() {
@@ -126,7 +179,7 @@ var AppService = (function() {
   function refreshAppData() {
     google.script.run
       .withSuccessHandler(function(data) {
-        if (data.success) _appData = data;
+        if (data && data.success) _appData = data;
       })
       .withFailureHandler(function() {})
       .getAppData();
@@ -248,44 +301,42 @@ var AppService = (function() {
     var isDanger = (danger !== false);
     var body     = '<p style="color:var(--text-muted);font-size:14px;line-height:1.6;">' + message + '</p>';
     var footer   =
-      '<button class="btn btn-ghost" onclick="AppService.closeModal()">Cancel</button>' +
+      '<button class="btn btn-ghost" onclick="AppService.closeModal()">' +
+        (onCancel ? 'Cancel' : 'Cancel') +
+      '</button>' +
       '<button class="btn ' + (isDanger ? 'btn-danger' : 'btn-primary') + '" id="confirmOkBtn">Confirm</button>';
 
-    openModal('Confirm Action', body, footer);
+    openModal('Confirm', body, footer);
 
     setTimeout(function() {
       var btn = document.getElementById('confirmOkBtn');
       if (btn) {
         btn.addEventListener('click', function() {
           closeModal();
-          if (onConfirm) onConfirm();
+          if (typeof onConfirm === 'function') onConfirm();
         });
       }
     }, 50);
   }
 
-  // ── HELPERS ─────────────────────────────────────────────────
+  // ── DATE FORMATTERS ─────────────────────────────────────────
   function formatDate(val) {
     if (!val) return '—';
     var d = new Date(val);
     if (isNaN(d.getTime())) return String(val);
-    return d.toLocaleDateString('en-PH', {
-      year: 'numeric', month: 'short', day: 'numeric'
-    });
+    return d.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
   function formatDateTime(val) {
     if (!val) return '—';
     var d = new Date(val);
     if (isNaN(d.getTime())) return String(val);
-    return d.toLocaleString('en-PH', {
-      year: 'numeric', month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    });
+    return d.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }) +
+      ' ' + d.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
   }
 
+  // ── BADGES ──────────────────────────────────────────────────
   function statusBadge(status) {
-    if (!status) return '—';
     var map = {
       'Draft':     'badge-draft',
       'Submitted': 'badge-submitted',
@@ -294,35 +345,36 @@ var AppService = (function() {
       'Cancelled': 'badge-cancelled',
       'Completed': 'badge-completed'
     };
-    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + status + '</span>';
+    var cls = map[status] || 'badge-draft';
+    return '<span class="badge ' + cls + '">' + escapeHtml(String(status || '—')) + '</span>';
   }
 
   function vehicleStatusBadge(status) {
-    if (!status) return '—';
     var map = {
       'Active':       'badge-active',
       'Under Repair': 'badge-repair',
       'Inactive':     'badge-inactive'
     };
-    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + status + '</span>';
+    var cls = map[status] || 'badge-draft';
+    return '<span class="badge ' + cls + '">' + escapeHtml(String(status || '—')) + '</span>';
   }
 
   function alertBadge(status) {
-    if (!status) return '—';
     var map = {
       'OK':             'badge-ok',
       'Due in 30 Days': 'badge-due',
       'Expired':        'badge-expired'
     };
-    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + status + '</span>';
+    var cls = map[status] || 'badge-draft';
+    return '<span class="badge ' + cls + '">' + escapeHtml(String(status || '—')) + '</span>';
   }
 
-  function buildOptions(arr, selectedVal, placeholder) {
-    placeholder = placeholder || '— Select —';
-    var html = '<option value="">' + placeholder + '</option>';
-    for (var i = 0; i < arr.length; i++) {
-      var item     = arr[i];
-      var val      = (item.value !== undefined) ? item.value : item;
+  // ── OPTIONS BUILDERS ────────────────────────────────────────
+  function buildOptions(items, selectedVal) {
+    var html = '';
+    for (var i = 0; i < items.length; i++) {
+      var item     = items[i];
+      var val      = (item && item.value !== undefined) ? item.value : item;
       var label    = item.label || item.value || item;
       var selected = String(val) === String(selectedVal || '') ? ' selected' : '';
       html += '<option value="' + escapeHtml(String(val)) + '"' + selected + '>' + escapeHtml(String(label)) + '</option>';
@@ -372,7 +424,6 @@ var AppService = (function() {
 
   // ── BOOT ────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function() {
-    // Close modal on overlay click
     document.getElementById('globalModal').addEventListener('click', function(e) {
       if (e.target === this) closeModal();
     });
@@ -381,30 +432,31 @@ var AppService = (function() {
 
   // ── PUBLIC API ───────────────────────────────────────────────
   return {
-    init           : init,
-    loginUser      : loginUser,
-    logout         : logout,
-    getCurrentUser : getCurrentUser,
-    getAppData     : getAppData,
-    refreshAppData : refreshAppData,
-    navigate       : navigate,
-    toggleSidebar  : toggleSidebar,
-    openModal      : openModal,
-    closeModal     : closeModal,
-    confirm        : confirm,
-    showToast      : showToast,
-    showLoader     : showLoader,
-    hideLoader     : hideLoader,
-    formatDate     : formatDate,
-    formatDateTime : formatDateTime,
-    statusBadge    : statusBadge,
-    vehicleStatusBadge : vehicleStatusBadge,
-    alertBadge     : alertBadge,
-    buildOptions   : buildOptions,
+    init                 : init,
+    loginUser            : loginUser,
+    retryLoadEmployees   : retryLoadEmployees,
+    logout               : logout,
+    getCurrentUser       : getCurrentUser,
+    getAppData           : getAppData,
+    refreshAppData       : refreshAppData,
+    navigate             : navigate,
+    toggleSidebar        : toggleSidebar,
+    openModal            : openModal,
+    closeModal           : closeModal,
+    confirm              : confirm,
+    showToast            : showToast,
+    showLoader           : showLoader,
+    hideLoader           : hideLoader,
+    formatDate           : formatDate,
+    formatDateTime       : formatDateTime,
+    statusBadge          : statusBadge,
+    vehicleStatusBadge   : vehicleStatusBadge,
+    alertBadge           : alertBadge,
+    buildOptions         : buildOptions,
     buildEmployeeOptions : buildEmployeeOptions,
     buildVehicleOptions  : buildVehicleOptions,
-    hasRole        : hasRole,
-    escapeHtml     : escapeHtml
+    hasRole              : hasRole,
+    escapeHtml           : escapeHtml
   };
 
 })();
