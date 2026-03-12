@@ -32,7 +32,22 @@ var AppService = (function() {
       .withSuccessHandler(function(data) {
         hideLoader();
         if (!data || !data.success) {
-          showToast('Failed to load app data. Please refresh.', 'error');
+          var msg = (data && data.message) ? data.message : 'Unknown error.';
+          showToast('Failed to load: ' + msg, 'error');
+          // Show error screen with retry button on dashboard
+          var target = document.getElementById('page-dashboard');
+          if (target) {
+            target.innerHTML =
+              '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;gap:16px;">' +
+                '<i class="fas fa-database" style="font-size:48px;color:var(--text-dim);"></i>' +
+                '<div style="color:var(--text-muted);font-size:16px;">Failed to connect to database</div>' +
+                '<div style="color:var(--text-dim);font-size:13px;max-width:400px;text-align:center;padding:0 20px;">' + msg + '</div>' +
+                '<button class="btn btn-primary" onclick="AppService.retryLoad()">' +
+                  '<i class="fas fa-rotate-right"></i> Retry Connection' +
+                '</button>' +
+              '</div>';
+            target.classList.remove('hidden');
+          }
           return;
         }
         _appData = data;
@@ -40,9 +55,31 @@ var AppService = (function() {
       })
       .withFailureHandler(function(err) {
         hideLoader();
-        showToast('Connection error. Please refresh the page.', 'error');
+        var msg = (err && err.message) ? err.message : 'Connection error';
+        showToast('Connection error: ' + msg, 'error');
+        var target = document.getElementById('page-dashboard');
+        if (target) {
+          target.innerHTML =
+            '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;gap:16px;">' +
+              '<i class="fas fa-plug-circle-xmark" style="font-size:48px;color:var(--text-dim);"></i>' +
+              '<div style="color:var(--text-muted);font-size:16px;">Connection Error</div>' +
+              '<div style="color:var(--text-dim);font-size:13px;max-width:400px;text-align:center;padding:0 20px;">' + msg + '</div>' +
+              '<button class="btn btn-primary" onclick="AppService.retryLoad()">' +
+                '<i class="fas fa-rotate-right"></i> Retry Connection' +
+              '</button>' +
+            '</div>';
+          target.classList.remove('hidden');
+        }
       })
       .getAppData();
+  }
+
+  // ── RETRY (called by retry button) ─────────────────────────
+  function retryLoad() {
+    // Reset dashboard content before retrying
+    var target = document.getElementById('page-dashboard');
+    if (target) target.innerHTML = '';
+    _loadAppData();
   }
 
   function getAppData() { return _appData; }
@@ -292,6 +329,7 @@ var AppService = (function() {
     getCurrentUser       : getCurrentUser,
     getAppData           : getAppData,
     refreshAppData       : refreshAppData,
+    retryLoad            : retryLoad,        // ← BAG-O NI
     hasRole              : hasRole,
     navigate             : navigate,
     toggleSidebar        : toggleSidebar,
