@@ -4,15 +4,8 @@
 // ============================================================
 
 // ── CONFIGURATION ───────────────────────────────────────────
-// HOW TO SET UP:
-// Option A (Recommended): Leave SPREADSHEET_ID blank.
-//   The script uses the Google Sheet it is bound to.
-//   Just run setupDatabase() once from the Apps Script editor.
-//
-// Option B: Paste your Spreadsheet ID below if using
-//   a standalone script (not bound to a sheet).
 var CONFIG = {
-  SPREADSHEET_ID: '1HigaSfRMDBEUbDGlSfA8L2foDTO4D_DShhd3QCL5tw4',   // ← Paste Sheet ID here if needed (Option B)
+  SPREADSHEET_ID: '1HigaSfRMDBEUbDGlSfA8L2foDTO4D_DShhd3QCL5tw4',
   SHEETS: {
     EMPLOYEES:      'Employees',
     VEHICLES:       'Vehicles',
@@ -26,25 +19,33 @@ var CONFIG = {
 function _getSS() {
   // Option B: explicit ID
   if (CONFIG.SPREADSHEET_ID && CONFIG.SPREADSHEET_ID !== '') {
-    return SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+    try {
+      return SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+    } catch (e) {
+      // Fall through to other options if ID fails
+      Logger.log('openById failed: ' + e.message);
+    }
   }
   // Option A: check saved property
   var props = PropertiesService.getScriptProperties();
   var saved = props.getProperty('SPREADSHEET_ID');
   if (saved && saved !== '') {
-    return SpreadsheetApp.openById(saved);
+    try {
+      return SpreadsheetApp.openById(saved);
+    } catch (e) {
+      Logger.log('saved ID failed: ' + e.message);
+    }
   }
   // Option A fallback: use the bound (active) spreadsheet
   try {
     var active = SpreadsheetApp.getActiveSpreadsheet();
     if (active) {
-      // Save for future calls
       props.setProperty('SPREADSHEET_ID', active.getId());
       return active;
     }
   } catch (e) {}
   // Last resort: create a new standalone spreadsheet
-  var ss  = SpreadsheetApp.create('OPS Trip Monitoring System — Database');
+  var ss = SpreadsheetApp.create('OPS Trip Monitoring System — Database');
   props.setProperty('SPREADSHEET_ID', ss.getId());
   Logger.log('Created new spreadsheet: ' + ss.getUrl());
   return ss;
@@ -154,14 +155,15 @@ function _setupVehiclesSheet(ss) {
   if (sheet.getLastRow() <= 1) {
     var now  = new Date();
     var yr   = now.getFullYear();
-    var mo   = now.getMonth();
+    // FIX: Use safe next-month date to avoid mo+1 overflow (was: new Date(yr, mo+1, 10))
+    var nextMonthSafe = new Date(now.getFullYear(), now.getMonth() + 2, 1); // always valid
 
     var vehicles = [
-      ['V-'+yr+'-0001','ORM-1234','Van',       'Toyota Hi-Ace',    15000,'Active',      new Date(yr+1,2,15),  '',new Date(yr+1,5,30), '','Main delivery van',         now,now],
-      ['V-'+yr+'-0002','ORM-5678','Motorcycle', 'Honda XRM 125',    8500, 'Active',      new Date(yr,11,31),   '',new Date(yr,11,31),  '','Office messenger bike',      now,now],
-      ['V-'+yr+'-0003','ORM-9012','Truck',      'Isuzu Elf',        42000,'Active',      new Date(yr+1,8,20),  '',new Date(yr+1,8,20), '','Heavy delivery truck',       now,now],
-      ['V-'+yr+'-0004','ORM-3456','Car',        'Toyota Vios',      22000,'Active',      new Date(yr,mo+1,10), '',new Date(yr+1,3,15), '','Owner errands vehicle',      now,now],
-      ['V-'+yr+'-0005','ORM-7890','Tricycle',   'Kawasaki Barako',  5200, 'Under Repair',new Date(yr+1,1,28),  '',new Date(yr+1,1,28), '','Small local deliveries',     now,now]
+      ['V-'+yr+'-0001','ORM-1234','Van',        'Toyota Hi-Ace',    15000, 'Active',       new Date(yr+1,2,15),  '', new Date(yr+1,5,30), '', 'Main delivery van',         now, now],
+      ['V-'+yr+'-0002','ORM-5678','Motorcycle',  'Honda XRM 125',    8500,  'Active',       new Date(yr+1,0,31),  '', new Date(yr+1,0,31), '', 'Office messenger bike',      now, now],
+      ['V-'+yr+'-0003','ORM-9012','Truck',        'Isuzu Elf',        42000, 'Active',       new Date(yr+1,8,20),  '', new Date(yr+1,8,20), '', 'Heavy delivery truck',       now, now],
+      ['V-'+yr+'-0004','ORM-3456','Car',          'Toyota Vios',      22000, 'Active',       nextMonthSafe,         '', new Date(yr+1,3,15), '', 'Owner errands vehicle',      now, now],
+      ['V-'+yr+'-0005','ORM-7890','Tricycle',     'Kawasaki Barako',  5200,  'Under Repair', new Date(yr+1,1,28),  '', new Date(yr+1,1,28), '', 'Small local deliveries',     now, now]
     ];
 
     for (var i = 0; i < vehicles.length; i++) sheet.appendRow(vehicles[i]);
@@ -339,7 +341,7 @@ function saveVehicle(data) {
     if (!data['Vehicle Type'] && !data['Vehicle ID']) return { success: false, message: 'Vehicle Type is required.' };
     if (!data['Status']) data['Status'] = 'Active';
 
-    var existing  = getVehicles();
+    var existing = getVehicles();
     for (var i = 0; i < existing.length; i++) {
       if (String(existing[i]['Plate Number']).toLowerCase() === String(data['Plate Number']).toLowerCase() &&
           String(existing[i]['Vehicle ID']) !== String(data['Vehicle ID'])) {
@@ -446,8 +448,8 @@ function saveTrip(data) {
           sheet.getRange(rowIdx + 1, h + 1).setValue(data[headers[h]]);
         }
       }
-      var updAt  = headers.indexOf('Updated At');
-      var updBy  = headers.indexOf('Updated By');
+      var updAt = headers.indexOf('Updated At');
+      var updBy = headers.indexOf('Updated By');
       if (updAt > -1) sheet.getRange(rowIdx + 1, updAt + 1).setValue(now);
       if (updBy > -1) sheet.getRange(rowIdx + 1, updBy + 1).setValue(data['Updated By'] || '');
       if (status === 'Approved' || status === 'Rejected') {
@@ -601,8 +603,10 @@ function getAppData() {
     if (!ss.getSheetByName(CONFIG.SHEETS.RENEWAL_ALERTS)) _setupRenewalAlertsSheet(ss);
 
     var employees = getEmployees();
-    var vehicles  = getActiveVehicles();
     var settings  = getSettings();
+    // FIX: Use getVehicles() (all vehicles) for seeding check, not getActiveVehicles()
+    // This prevents infinite re-seed loop when all vehicles are Under Repair / Inactive
+    var allVehicles = getVehicles();
 
     // If employees sheet exists but is empty, seed it
     if (employees.length === 0) {
@@ -614,11 +618,13 @@ function getAppData() {
       _setupSettingsSheet(ss);
       settings = getSettings();
     }
-    // Same for vehicles
-    if (vehicles.length === 0) {
+    // FIX: Only re-seed vehicles if the sheet is truly empty (no rows at all)
+    if (allVehicles.length === 0) {
       _setupVehiclesSheet(ss);
-      vehicles = getActiveVehicles();
     }
+
+    // Now get active vehicles for the UI (after seeding is done)
+    var vehicles = getActiveVehicles();
 
     return {
       success:   true,
@@ -627,6 +633,7 @@ function getAppData() {
       settings:  settings
     };
   } catch (e) {
+    Logger.log('getAppData error: ' + e.message + '\n' + e.stack);
     return { success: false, message: 'getAppData error: ' + e.message };
   }
 }
