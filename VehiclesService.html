@@ -8,9 +8,8 @@ var VehiclesService = (function() {
   var _allVehicles = [];
   var _editingId   = null;
 
-  // Hardcoded defaults — always visible even if Settings sheet is empty
-  var DEFAULT_VEHICLE_TYPES  = ['Van', 'Truck', 'Motorcycle', 'Car', 'Tricycle'];
-  var DEFAULT_VEHICLE_STATUS = ['Active', 'Under Repair', 'Inactive'];
+  // Always-available vehicle types — no dependency on Settings sheet
+  var DEFAULT_TYPES = ['Van', 'Truck', 'Motorcycle', 'Car', 'Tricycle'];
 
   // ── LOAD ───────────────────────────────────────────────────
   function load() {
@@ -18,15 +17,18 @@ var VehiclesService = (function() {
     _fetchVehicles();
   }
 
-  function _getVehicleTypes() {
-    // Merge hardcoded defaults + settings + existing vehicle types (unique)
-    var appData  = AppService.getAppData();
-    var fromSettings = (appData && appData.settings && appData.settings['Vehicle Type'])
-      ? appData.settings['Vehicle Type'] : [];
-    var all = DEFAULT_VEHICLE_TYPES.slice();
-    for (var i = 0; i < fromSettings.length; i++) {
-      if (all.indexOf(fromSettings[i]) === -1) all.push(fromSettings[i]);
-    }
+  // Collect all known types: defaults + settings + existing vehicles
+  function _getKnownTypes() {
+    var all = DEFAULT_TYPES.slice();
+    try {
+      var appData = AppService.getAppData();
+      if (appData && appData.settings && appData.settings['Vehicle Type']) {
+        var fromSettings = appData.settings['Vehicle Type'];
+        for (var i = 0; i < fromSettings.length; i++) {
+          if (all.indexOf(fromSettings[i]) === -1) all.push(fromSettings[i]);
+        }
+      }
+    } catch(e) {}
     for (var j = 0; j < _allVehicles.length; j++) {
       var t = _allVehicles[j]['Vehicle Type'];
       if (t && all.indexOf(t) === -1) all.push(t);
@@ -38,7 +40,7 @@ var VehiclesService = (function() {
     var sel = document.getElementById('vehFilterType');
     if (!sel) return;
     while (sel.options.length > 1) sel.remove(1);
-    var types = _getVehicleTypes();
+    var types = _getKnownTypes();
     for (var i = 0; i < types.length; i++) {
       var opt = document.createElement('option');
       opt.value = types[i];
@@ -54,13 +56,13 @@ var VehiclesService = (function() {
     }
     google.script.run
       .withSuccessHandler(function(vehicles) {
-        _allVehicles = vehicles;
+        _allVehicles = Array.isArray(vehicles) ? vehicles : [];
         _populateTypeFilter();
         applyFilter();
       })
-      .withFailureHandler(function() {
+      .withFailureHandler(function(err) {
         if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="table-empty">Failed to load vehicles.</td></tr>';
-        AppService.showToast('Failed to load vehicles.', 'error');
+        AppService.showToast('Failed to load vehicles: ' + (err ? err.message : ''), 'error');
       })
       .getVehicles();
   }
@@ -90,7 +92,7 @@ var VehiclesService = (function() {
     var tbody = document.getElementById('vehiclesTableBody');
     if (!tbody) return;
 
-    if (vehicles.length === 0) {
+    if (!vehicles || vehicles.length === 0) {
       tbody.innerHTML = '<tr><td colspan="9" class="table-empty">No vehicles found.</td></tr>';
       return;
     }
@@ -100,30 +102,18 @@ var VehiclesService = (function() {
       var v        = vehicles[i];
       var insAlert = _expiryClass(v['Insurance Expiry Date']);
       var ltoAlert = _expiryClass(v['LTO Expiry Date']);
-      var vId      = AppService.escapeHtml(v['Vehicle ID']);
-      var vStatus  = AppService.escapeHtml(v['Status']);
+      var vId      = AppService.escapeHtml(String(v['Vehicle ID'] || ''));
+      var vStatus  = AppService.escapeHtml(String(v['Status'] || ''));
 
       var isInactive  = v['Status'] === 'Inactive';
       var toggleColor = isInactive ? 'var(--success)' : 'var(--danger)';
       var toggleIcon  = isInactive ? 'fa-circle-check' : 'fa-ban';
       var toggleTitle = isInactive ? 'Activate' : 'Deactivate';
 
-      var editBtns =
-        '<button class="btn btn-ghost btn-sm btn-icon" title="View" ' +
-          'onclick="VehiclesService.viewVehicle(\'' + vId + '\')">' +
-          '<i class="fas fa-eye"></i></button>' +
-        '<button class="btn btn-ghost btn-sm btn-icon" title="Edit" ' +
-          'onclick="VehiclesService.openForm(\'' + vId + '\')">' +
-          '<i class="fas fa-pen"></i></button>' +
-        '<button class="btn btn-ghost btn-sm btn-icon" title="' + toggleTitle + '" ' +
-          'style="color:' + toggleColor + ';" ' +
-          'onclick="VehiclesService.toggleStatus(\'' + vId + '\',\'' + vStatus + '\')">' +
-          '<i class="fas ' + toggleIcon + '"></i></button>';
-
       rows +=
         '<tr>' +
           '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">' + vId + '</span></td>' +
-          '<td><strong>' + AppService.escapeHtml(v['Plate Number']) + '</strong></td>' +
+          '<td><strong>' + AppService.escapeHtml(v['Plate Number'] || '') + '</strong></td>' +
           '<td>' + AppService.escapeHtml(v['Vehicle Type'] || '—') + '</td>' +
           '<td>' + AppService.escapeHtml(v['Brand/Model']  || '—') + '</td>' +
           '<td>' + AppService.vehicleStatusBadge(v['Status']) + '</td>' +
@@ -137,7 +127,9 @@ var VehiclesService = (function() {
           '</span></td>' +
           '<td class="muted">' + (v['Beginning Mileage'] ? Number(v['Beginning Mileage']).toLocaleString() + ' km' : '—') + '</td>' +
           '<td style="text-align:right;white-space:nowrap;">' +
-            '<div class="action-row" style="justify-content:flex-end;">' + editBtns + '</div>' +
+            '<button class="btn btn-ghost btn-sm btn-icon" title="View" onclick="VehiclesService.viewVehicle(\'' + vId + '\')"><i class="fas fa-eye"></i></button> ' +
+            '<button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="VehiclesService.openForm(\'' + vId + '\')"><i class="fas fa-pen"></i></button> ' +
+            '<button class="btn btn-ghost btn-sm btn-icon" title="' + toggleTitle + '" style="color:' + toggleColor + ';" onclick="VehiclesService.toggleStatus(\'' + vId + '\',\'' + vStatus + '\')"><i class="fas ' + toggleIcon + '"></i></button>' +
           '</td>' +
         '</tr>';
     }
@@ -157,7 +149,7 @@ var VehiclesService = (function() {
   // ── VIEW VEHICLE ───────────────────────────────────────────
   function viewVehicle(vehicleId) {
     var v = _findVehicle(vehicleId);
-    if (!v) return;
+    if (!v) { AppService.showToast('Vehicle not found.', 'error'); return; }
 
     var insLink = v['Insurance PDF Link']
       ? '<a href="' + AppService.escapeHtml(v['Insurance PDF Link']) + '" target="_blank" style="color:var(--accent);">View PDF <i class="fas fa-arrow-up-right-from-square"></i></a>'
@@ -168,8 +160,8 @@ var VehiclesService = (function() {
 
     var body =
       '<div class="detail-grid">' +
-        _dItem('Vehicle ID',      '<span style="font-family:var(--font-mono);color:var(--accent);">' + AppService.escapeHtml(v['Vehicle ID']) + '</span>') +
-        _dItem('Plate Number',    '<strong>' + AppService.escapeHtml(v['Plate Number']) + '</strong>') +
+        _dItem('Vehicle ID',      '<span style="font-family:var(--font-mono);color:var(--accent);">' + AppService.escapeHtml(v['Vehicle ID'] || '') + '</span>') +
+        _dItem('Plate Number',    '<strong>' + AppService.escapeHtml(v['Plate Number'] || '') + '</strong>') +
         _dItem('Vehicle Type',    AppService.escapeHtml(v['Vehicle Type']  || '—')) +
         _dItem('Brand / Model',   AppService.escapeHtml(v['Brand/Model']   || '—')) +
         _dItem('Status',          AppService.vehicleStatusBadge(v['Status'])) +
@@ -184,122 +176,108 @@ var VehiclesService = (function() {
         _dItem('Created At', AppService.formatDateTime(v['Created At'])) +
       '</div>';
 
-    var vId    = AppService.escapeHtml(v['Vehicle ID']);
+    var vId    = AppService.escapeHtml(v['Vehicle ID'] || '');
     var footer =
       '<button class="btn btn-ghost" onclick="AppService.closeModal()">Close</button>' +
       '<button class="btn btn-primary" onclick="AppService.closeModal();VehiclesService.openForm(\'' + vId + '\')"><i class="fas fa-pen"></i> Edit</button>';
 
-    AppService.openModal('Vehicle — ' + AppService.escapeHtml(v['Plate Number']), body, footer);
+    AppService.openModal('Vehicle — ' + AppService.escapeHtml(v['Plate Number'] || ''), body, footer);
   }
 
   function _dItem(label, value) {
-    return '<div class="detail-item">' +
-      '<div class="detail-label">' + label + '</div>' +
-      '<div class="detail-value">'  + value + '</div>' +
-    '</div>';
+    return '<div class="detail-item"><div class="detail-label">' + label + '</div><div class="detail-value">' + value + '</div></div>';
   }
 
   // ── ADD / EDIT FORM ────────────────────────────────────────
   function openForm(vehicleId) {
-    _editingId = vehicleId || null;
-    var v = vehicleId ? (_findVehicle(vehicleId) || {}) : {};
+    try {
+      _editingId = vehicleId || null;
+      var v = vehicleId ? (_findVehicle(vehicleId) || {}) : {};
 
-    // Build Vehicle Type options — hardcoded defaults + any from DB
-    var knownTypes = _getVehicleTypes();
-    var typeOptsHtml = '';
-    // Add blank first option for new vehicle
-    if (!vehicleId) typeOptsHtml += '<option value="">— Select or type below —</option>';
-    for (var i = 0; i < knownTypes.length; i++) {
-      var sel = (v['Vehicle Type'] === knownTypes[i]) ? ' selected' : '';
-      typeOptsHtml += '<option value="' + AppService.escapeHtml(knownTypes[i]) + '"' + sel + '>' + AppService.escapeHtml(knownTypes[i]) + '</option>';
+      var knownTypes   = _getKnownTypes();
+      var typeOptsHtml = '<option value="">— Select Type —</option>';
+      for (var i = 0; i < knownTypes.length; i++) {
+        var isSel = (v['Vehicle Type'] && v['Vehicle Type'] === knownTypes[i]) ? ' selected' : '';
+        typeOptsHtml += '<option value="' + AppService.escapeHtml(knownTypes[i]) + '"' + isSel + '>' + AppService.escapeHtml(knownTypes[i]) + '</option>';
+      }
+      typeOptsHtml += '<option value="__custom__">+ Add new type...</option>';
+
+      var curStatus    = v['Status'] || 'Active';
+      var statusHtml   =
+        '<option value="Active"'       + (curStatus === 'Active'       ? ' selected' : '') + '>Active</option>' +
+        '<option value="Under Repair"' + (curStatus === 'Under Repair' ? ' selected' : '') + '>Under Repair</option>' +
+        '<option value="Inactive"'     + (curStatus === 'Inactive'     ? ' selected' : '') + '>Inactive</option>';
+
+      var body =
+        '<div class="form-grid">' +
+
+          '<div class="form-group">' +
+            '<label class="form-label">Plate Number <span class="req">*</span></label>' +
+            '<input type="text" class="form-control" id="fVehPlate" value="' + AppService.escapeHtml(v['Plate Number'] || '') + '" placeholder="e.g. ABC 1234" maxlength="20"/>' +
+          '</div>' +
+
+          '<div class="form-group">' +
+            '<label class="form-label">Vehicle Type <span class="req">*</span></label>' +
+            '<select class="form-control" id="fVehTypeSelect" onchange="VehiclesService._onTypeChange()">' + typeOptsHtml + '</select>' +
+            '<input type="text" class="form-control" id="fVehTypeCustom" placeholder="Enter new vehicle type..." style="margin-top:6px;display:none;" maxlength="50"/>' +
+          '</div>' +
+
+          '<div class="form-group form-grid-full">' +
+            '<label class="form-label">Brand / Model</label>' +
+            '<input type="text" class="form-control" id="fVehModel" value="' + AppService.escapeHtml(v['Brand/Model'] || '') + '" placeholder="e.g. Toyota Hi-Ace"/>' +
+          '</div>' +
+
+          '<div class="form-group">' +
+            '<label class="form-label">Beginning Mileage (km)</label>' +
+            '<input type="number" class="form-control" id="fVehMileage" value="' + (v['Beginning Mileage'] || '') + '" min="0" placeholder="0"/>' +
+          '</div>' +
+
+          '<div class="form-group">' +
+            '<label class="form-label">Status <span class="req">*</span></label>' +
+            '<select class="form-control" id="fVehStatus">' + statusHtml + '</select>' +
+          '</div>' +
+
+          '<div class="form-group">' +
+            '<label class="form-label">Insurance Expiry Date</label>' +
+            '<input type="date" class="form-control" id="fVehInsExpiry" value="' + _toDateInput(v['Insurance Expiry Date']) + '"/>' +
+          '</div>' +
+
+          '<div class="form-group">' +
+            '<label class="form-label">Insurance PDF Link</label>' +
+            '<input type="url" class="form-control" id="fVehInsLink" value="' + AppService.escapeHtml(v['Insurance PDF Link'] || '') + '" placeholder="https://drive.google.com/..."/>' +
+          '</div>' +
+
+          '<div class="form-group">' +
+            '<label class="form-label">LTO Expiry Date</label>' +
+            '<input type="date" class="form-control" id="fVehLtoExpiry" value="' + _toDateInput(v['LTO Expiry Date']) + '"/>' +
+          '</div>' +
+
+          '<div class="form-group">' +
+            '<label class="form-label">LTO PDF Link</label>' +
+            '<input type="url" class="form-control" id="fVehLtoLink" value="' + AppService.escapeHtml(v['LTO PDF Link'] || '') + '" placeholder="https://drive.google.com/..."/>' +
+          '</div>' +
+
+          '<div class="form-group form-grid-full">' +
+            '<label class="form-label">Notes</label>' +
+            '<textarea class="form-control" id="fVehNotes" rows="2" placeholder="Optional notes...">' + AppService.escapeHtml(v['Notes'] || '') + '</textarea>' +
+          '</div>' +
+
+        '</div>';
+
+      var footer =
+        '<button class="btn btn-ghost" onclick="AppService.closeModal()">Cancel</button>' +
+        '<button class="btn btn-primary" onclick="VehiclesService.saveVehicle()">' +
+          '<i class="fas fa-floppy-disk"></i> ' + (vehicleId ? 'Update Vehicle' : 'Save Vehicle') +
+        '</button>';
+
+      AppService.openModal(vehicleId ? 'Edit Vehicle' : 'Add Vehicle', body, footer);
+
+    } catch(e) {
+      console.error('openForm error:', e);
+      AppService.showToast('Error opening form: ' + e.message, 'error');
     }
-    typeOptsHtml += '<option value="__custom__">+ Add new type...</option>';
-
-    // Build Status options — always hardcoded
-    var statusOptsHtml =
-      '<option value="Active"'       + ((!v['Status'] || v['Status'] === 'Active')   ? ' selected' : '') + '>Active</option>' +
-      '<option value="Under Repair"' + (v['Status'] === 'Under Repair'               ? ' selected' : '') + '>Under Repair</option>' +
-      '<option value="Inactive"'     + (v['Status'] === 'Inactive'                   ? ' selected' : '') + '>Inactive</option>';
-
-    var body =
-      '<div class="form-grid">' +
-
-        // Plate Number
-        '<div class="form-group">' +
-          '<label class="form-label">Plate Number <span class="req">*</span></label>' +
-          '<input type="text" class="form-control" id="fVehPlate" value="' + AppService.escapeHtml(v['Plate Number'] || '') + '" placeholder="e.g. ABC 1234" maxlength="20"/>' +
-        '</div>' +
-
-        // Vehicle Type — dropdown + custom input
-        '<div class="form-group">' +
-          '<label class="form-label">Vehicle Type <span class="req">*</span></label>' +
-          '<select class="form-control" id="fVehTypeSelect" onchange="VehiclesService._onTypeChange()">' +
-            typeOptsHtml +
-          '</select>' +
-          '<input type="text" class="form-control" id="fVehTypeCustom" placeholder="Type new vehicle type..." ' +
-            'style="margin-top:6px;display:none;" maxlength="50"/>' +
-        '</div>' +
-
-        // Brand / Model
-        '<div class="form-group form-grid-full">' +
-          '<label class="form-label">Brand / Model</label>' +
-          '<input type="text" class="form-control" id="fVehModel" value="' + AppService.escapeHtml(v['Brand/Model'] || '') + '" placeholder="e.g. Toyota Hi-Ace"/>' +
-        '</div>' +
-
-        // Beginning Mileage
-        '<div class="form-group">' +
-          '<label class="form-label">Beginning Mileage (km)</label>' +
-          '<input type="number" class="form-control" id="fVehMileage" value="' + (v['Beginning Mileage'] || '') + '" min="0" placeholder="0"/>' +
-        '</div>' +
-
-        // Status — always hardcoded
-        '<div class="form-group">' +
-          '<label class="form-label">Status <span class="req">*</span></label>' +
-          '<select class="form-control" id="fVehStatus">' + statusOptsHtml + '</select>' +
-        '</div>' +
-
-        // Insurance Expiry
-        '<div class="form-group">' +
-          '<label class="form-label">Insurance Expiry Date</label>' +
-          '<input type="date" class="form-control" id="fVehInsExpiry" value="' + _toDateInput(v['Insurance Expiry Date']) + '"/>' +
-        '</div>' +
-
-        // Insurance PDF Link
-        '<div class="form-group">' +
-          '<label class="form-label">Insurance PDF Link</label>' +
-          '<input type="url" class="form-control" id="fVehInsLink" value="' + AppService.escapeHtml(v['Insurance PDF Link'] || '') + '" placeholder="https://drive.google.com/..."/>' +
-        '</div>' +
-
-        // LTO Expiry
-        '<div class="form-group">' +
-          '<label class="form-label">LTO Expiry Date</label>' +
-          '<input type="date" class="form-control" id="fVehLtoExpiry" value="' + _toDateInput(v['LTO Expiry Date']) + '"/>' +
-        '</div>' +
-
-        // LTO PDF Link
-        '<div class="form-group">' +
-          '<label class="form-label">LTO PDF Link</label>' +
-          '<input type="url" class="form-control" id="fVehLtoLink" value="' + AppService.escapeHtml(v['LTO PDF Link'] || '') + '" placeholder="https://drive.google.com/..."/>' +
-        '</div>' +
-
-        // Notes
-        '<div class="form-group form-grid-full">' +
-          '<label class="form-label">Notes</label>' +
-          '<textarea class="form-control" id="fVehNotes" rows="2" placeholder="Optional notes...">' + AppService.escapeHtml(v['Notes'] || '') + '</textarea>' +
-        '</div>' +
-
-      '</div>';
-
-    var footer =
-      '<button class="btn btn-ghost" onclick="AppService.closeModal()">Cancel</button>' +
-      '<button class="btn btn-primary" onclick="VehiclesService.saveVehicle()">' +
-        '<i class="fas fa-floppy-disk"></i> ' + (vehicleId ? 'Update Vehicle' : 'Save Vehicle') +
-      '</button>';
-
-    AppService.openModal(vehicleId ? 'Edit Vehicle' : 'Add Vehicle', body, footer);
   }
 
-  // Show/hide custom type input when "+ Add new type..." is selected
   function _onTypeChange() {
     var sel    = document.getElementById('fVehTypeSelect');
     var custom = document.getElementById('fVehTypeCustom');
@@ -315,53 +293,50 @@ var VehiclesService = (function() {
 
   // ── SAVE VEHICLE ───────────────────────────────────────────
   function saveVehicle() {
-    // Get vehicle type — if custom selected, use the text input
-    var typeSelect = document.getElementById('fVehTypeSelect');
-    var typeCustom = document.getElementById('fVehTypeCustom');
+    var typeSelect  = document.getElementById('fVehTypeSelect');
+    var typeCustom  = document.getElementById('fVehTypeCustom');
     var vehicleType = '';
     if (typeSelect) {
-      if (typeSelect.value === '__custom__') {
-        vehicleType = typeCustom ? typeCustom.value.trim() : '';
-      } else {
-        vehicleType = typeSelect.value;
-      }
+      vehicleType = (typeSelect.value === '__custom__')
+        ? (typeCustom ? typeCustom.value.trim() : '')
+        : typeSelect.value;
     }
 
     var data = {
-      'Plate Number':          (document.getElementById('fVehPlate')     ? document.getElementById('fVehPlate').value.trim()  : ''),
+      'Plate Number':          _val('fVehPlate'),
       'Vehicle Type':          vehicleType,
-      'Brand/Model':           (document.getElementById('fVehModel')     ? document.getElementById('fVehModel').value.trim()  : ''),
-      'Beginning Mileage':     (document.getElementById('fVehMileage')   ? document.getElementById('fVehMileage').value        : ''),
-      'Status':                (document.getElementById('fVehStatus')    ? document.getElementById('fVehStatus').value         : 'Active'),
-      'Insurance Expiry Date': (document.getElementById('fVehInsExpiry') ? document.getElementById('fVehInsExpiry').value      : ''),
-      'Insurance PDF Link':    (document.getElementById('fVehInsLink')   ? document.getElementById('fVehInsLink').value.trim() : ''),
-      'LTO Expiry Date':       (document.getElementById('fVehLtoExpiry') ? document.getElementById('fVehLtoExpiry').value      : ''),
-      'LTO PDF Link':          (document.getElementById('fVehLtoLink')   ? document.getElementById('fVehLtoLink').value.trim() : ''),
-      'Notes':                 (document.getElementById('fVehNotes')     ? document.getElementById('fVehNotes').value.trim()   : '')
+      'Brand/Model':           _val('fVehModel'),
+      'Beginning Mileage':     _val('fVehMileage'),
+      'Status':                _val('fVehStatus') || 'Active',
+      'Insurance Expiry Date': _val('fVehInsExpiry'),
+      'Insurance PDF Link':    _val('fVehInsLink'),
+      'LTO Expiry Date':       _val('fVehLtoExpiry'),
+      'LTO PDF Link':          _val('fVehLtoLink'),
+      'Notes':                 _val('fVehNotes')
     };
 
     if (_editingId) data['Vehicle ID'] = _editingId;
 
     if (!data['Plate Number']) { AppService.showToast('Plate Number is required.', 'error'); return; }
-    if (!data['Vehicle Type']) { AppService.showToast('Vehicle Type is required. Select one or type a new type.', 'error'); return; }
+    if (!data['Vehicle Type']) { AppService.showToast('Please select or enter a Vehicle Type.', 'error'); return; }
 
     AppService.showLoader(_editingId ? 'Updating vehicle...' : 'Saving vehicle...');
 
     google.script.run
       .withSuccessHandler(function(result) {
         AppService.hideLoader();
-        if (result.success) {
+        if (result && result.success) {
           AppService.closeModal();
-          AppService.showToast(result.message, 'success');
+          AppService.showToast(result.message || 'Saved!', 'success');
           _fetchVehicles();
           AppService.refreshAppData();
         } else {
-          AppService.showToast(result.message, 'error');
+          AppService.showToast((result && result.message) || 'Failed to save vehicle.', 'error');
         }
       })
       .withFailureHandler(function(err) {
         AppService.hideLoader();
-        AppService.showToast('Error saving vehicle: ' + err.message, 'error');
+        AppService.showToast('Error saving vehicle: ' + (err ? err.message : 'unknown'), 'error');
       })
       .saveVehicle(data);
   }
@@ -370,7 +345,6 @@ var VehiclesService = (function() {
   function toggleStatus(vehicleId, currentStatus) {
     var newStatus  = currentStatus === 'Inactive' ? 'Active' : 'Inactive';
     var actionText = newStatus === 'Inactive' ? 'deactivate' : 'reactivate';
-
     AppService.confirm(
       'Are you sure you want to ' + actionText + ' this vehicle?',
       function() {
@@ -378,17 +352,17 @@ var VehiclesService = (function() {
         google.script.run
           .withSuccessHandler(function(result) {
             AppService.hideLoader();
-            if (result.success) {
-              AppService.showToast(result.message, 'success');
+            if (result && result.success) {
+              AppService.showToast(result.message || 'Updated!', 'success');
               _fetchVehicles();
               AppService.refreshAppData();
             } else {
-              AppService.showToast(result.message, 'error');
+              AppService.showToast((result && result.message) || 'Failed to update.', 'error');
             }
           })
           .withFailureHandler(function(err) {
             AppService.hideLoader();
-            AppService.showToast('Error: ' + err.message, 'error');
+            AppService.showToast('Error: ' + (err ? err.message : 'unknown'), 'error');
           })
           .saveVehicle({ 'Vehicle ID': vehicleId, 'Status': newStatus });
       },
@@ -400,9 +374,14 @@ var VehiclesService = (function() {
   // ── HELPERS ─────────────────────────────────────────────────
   function _findVehicle(vehicleId) {
     for (var i = 0; i < _allVehicles.length; i++) {
-      if (_allVehicles[i]['Vehicle ID'] === vehicleId) return _allVehicles[i];
+      if (String(_allVehicles[i]['Vehicle ID']) === String(vehicleId)) return _allVehicles[i];
     }
     return null;
+  }
+
+  function _val(id) {
+    var el = document.getElementById(id);
+    return el ? el.value.trim() : '';
   }
 
   function _toDateInput(val) {
@@ -422,7 +401,7 @@ var VehiclesService = (function() {
     saveVehicle   : saveVehicle,
     viewVehicle   : viewVehicle,
     toggleStatus  : toggleStatus,
-    _onTypeChange : _onTypeChange   // exposed for inline onchange
+    _onTypeChange : _onTypeChange
   };
 
 })();
