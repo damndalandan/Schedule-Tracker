@@ -1,13 +1,11 @@
 <script>
 // ============================================================
 // AppService.html — Core Application Service
-// Save this file as: AppService.html in Apps Script
 // ============================================================
 
 var AppService = (function() {
 
   // ── STATE ──────────────────────────────────────────────────
-  var _currentUser = null;
   var _appData     = null;
   var _currentPage = null;
 
@@ -15,7 +13,7 @@ var AppService = (function() {
   function init() {
     _updateTopbarDate();
     setInterval(_updateTopbarDate, 60000);
-    _loadEmployeesForSplash();
+    _loadAppData();
   }
 
   function _updateTopbarDate() {
@@ -27,154 +25,37 @@ var AppService = (function() {
     }
   }
 
-  // ── SPLASH / LOGIN ─────────────────────────────────────────
-  function _loadEmployeesForSplash() {
-    // Show loading state inside splash card
-    var sel        = document.getElementById('userSelect');
-    var loginBtn   = document.getElementById('loginBtn');
-    var retryBtn   = document.getElementById('splashRetryBtn');
-    var splashMsg  = document.getElementById('splashLoadingMsg');
-
-    if (sel)       { sel.disabled = true; sel.innerHTML = '<option value="">Loading employees...</option>'; }
-    if (loginBtn)  { loginBtn.disabled = true; }
-    if (retryBtn)  { retryBtn.classList.add('hidden'); }
-    if (splashMsg) { splashMsg.classList.remove('hidden'); }
-
+  // ── LOAD APP DATA & GO TO DASHBOARD ────────────────────────
+  function _loadAppData() {
+    showLoader('Loading...');
     google.script.run
       .withSuccessHandler(function(data) {
-        if (splashMsg) splashMsg.classList.add('hidden');
-
+        hideLoader();
         if (!data || !data.success) {
-          _onSplashLoadError('Failed to load employee list. Please retry.');
+          showToast('Failed to load app data. Please refresh.', 'error');
           return;
         }
-
         _appData = data;
-
-        // Populate dropdown
-        if (sel) {
-          sel.innerHTML = '<option value="">— Select your name —</option>';
-          data.employees.forEach(function(emp) {
-            if (emp['Status'] === 'Active') {
-              var opt = document.createElement('option');
-              opt.value       = emp['Employee ID'];
-              opt.textContent = emp['Employee Name'] + ' (' + emp['Role'] + ')';
-              sel.appendChild(opt);
-            }
-          });
-          sel.disabled = false;
-        }
-
-        if (loginBtn) loginBtn.disabled = false;
+        navigate('dashboard');
       })
       .withFailureHandler(function(err) {
-        if (splashMsg) splashMsg.classList.add('hidden');
-        var msg = (err && err.message) ? err.message : 'Connection error. Please retry.';
-        _onSplashLoadError(msg);
+        hideLoader();
+        showToast('Connection error. Please refresh the page.', 'error');
       })
       .getAppData();
   }
 
-  function _onSplashLoadError(msg) {
-    var sel       = document.getElementById('userSelect');
-    var loginBtn  = document.getElementById('loginBtn');
-    var retryBtn  = document.getElementById('splashRetryBtn');
-    var splashErr = document.getElementById('splashError');
+  function getAppData() { return _appData; }
 
-    if (sel)      { sel.disabled = true; sel.innerHTML = '<option value="">— Failed to load —</option>'; }
-    if (loginBtn) { loginBtn.disabled = true; }
-    if (retryBtn) { retryBtn.classList.remove('hidden'); }
-    if (splashErr){ splashErr.textContent = msg; splashErr.classList.remove('hidden'); }
+  // Stub — no user needed, return a generic Admin object
+  function getCurrentUser() {
+    return { 'Employee ID': 'EMP-000', 'Employee Name': 'Admin', 'Role': 'Admin' };
   }
 
-  // Called by retry button in splash card
-  function retryLoadEmployees() {
-    var splashErr = document.getElementById('splashError');
-    if (splashErr) splashErr.classList.add('hidden');
-    _loadEmployeesForSplash();
+  function hasRole() {
+    // No login — everyone has access to everything
+    return true;
   }
-
-  function loginUser() {
-    var sel = document.getElementById('userSelect');
-    var err = document.getElementById('splashError');
-
-    // Guard: appData not loaded yet
-    if (!_appData) {
-      if (err) { err.textContent = 'Employee data not loaded yet. Please wait or retry.'; err.classList.remove('hidden'); }
-      return;
-    }
-
-    if (!sel || !sel.value) {
-      if (err) { err.textContent = 'Please select your name to continue.'; err.classList.remove('hidden'); }
-      return;
-    }
-
-    if (err) err.classList.add('hidden');
-
-    var emp = null;
-    for (var i = 0; i < _appData.employees.length; i++) {
-      if (String(_appData.employees[i]['Employee ID']) === String(sel.value)) {
-        emp = _appData.employees[i];
-        break;
-      }
-    }
-
-    if (!emp) {
-      showToast('Employee not found. Please retry.', 'error');
-      return;
-    }
-
-    _currentUser = emp;
-    _renderUserUI();
-    _applyRoleVisibility();
-    document.getElementById('splashScreen').classList.add('hidden');
-    document.getElementById('mainApp').classList.remove('hidden');
-    navigate('dashboard');
-  }
-
-  function logout() {
-    _currentUser = null;
-    _currentPage = null;
-    _appData     = null;
-    document.getElementById('mainApp').classList.add('hidden');
-    document.getElementById('splashScreen').classList.remove('hidden');
-    // Reset splash state and reload employees fresh
-    var err = document.getElementById('splashError');
-    if (err) err.classList.add('hidden');
-    _loadEmployeesForSplash();
-  }
-
-  function _renderUserUI() {
-    var name    = _currentUser['Employee Name'] || '?';
-    var role    = _currentUser['Role']          || '—';
-    var words   = name.split(' ');
-    var initials = '';
-    for (var i = 0; i < Math.min(words.length, 2); i++) {
-      if (words[i]) initials += words[i][0].toUpperCase();
-    }
-
-    document.getElementById('sidebarAvatar').textContent   = initials;
-    document.getElementById('sidebarUserName').textContent = name;
-    document.getElementById('sidebarUserRole').textContent = role;
-    document.getElementById('topbarAvatar').textContent    = initials;
-    document.getElementById('topbarUserName').textContent  = name;
-  }
-
-  function _applyRoleVisibility() {
-    var role  = _currentUser['Role'];
-    var items = document.querySelectorAll('.nav-item-role');
-    for (var i = 0; i < items.length; i++) {
-      var roles = (items[i].dataset.roles || '').split(',');
-      var found = false;
-      for (var j = 0; j < roles.length; j++) {
-        if (roles[j].trim() === role) { found = true; break; }
-      }
-      items[i].style.display = found ? '' : 'none';
-    }
-  }
-
-  function getCurrentUser() { return _currentUser; }
-  function getAppData()     { return _appData; }
 
   function refreshAppData() {
     google.script.run
@@ -219,7 +100,6 @@ var AppService = (function() {
 
     _currentPage = page;
 
-    // Fire page load functions
     if (page === 'dashboard'     && typeof DashboardService     !== 'undefined') DashboardService.load();
     if (page === 'trips'         && typeof TripsService         !== 'undefined') TripsService.load();
     if (page === 'approval'      && typeof ApprovalService      !== 'undefined') ApprovalService.load();
@@ -228,7 +108,6 @@ var AppService = (function() {
     if (page === 'renewalAlerts' && typeof RenewalAlertsService !== 'undefined') RenewalAlertsService.load();
     if (page === 'reports'       && typeof ReportsService       !== 'undefined') ReportsService.load();
 
-    // Close sidebar on mobile
     if (window.innerWidth <= 768) {
       document.getElementById('sidebar').classList.add('collapsed');
     }
@@ -245,11 +124,8 @@ var AppService = (function() {
     document.getElementById('modalBody').innerHTML     = bodyHtml;
     document.getElementById('modalFooter').innerHTML   = footerHtml || '';
     var box = document.getElementById('modalBox');
-    if (large) {
-      box.classList.add('modal-lg');
-    } else {
-      box.classList.remove('modal-lg');
-    }
+    if (large) { box.classList.add('modal-lg'); }
+    else        { box.classList.remove('modal-lg'); }
     document.getElementById('globalModal').classList.remove('hidden');
   }
 
@@ -299,23 +175,17 @@ var AppService = (function() {
   // ── CONFIRM ─────────────────────────────────────────────────
   function confirm(message, onConfirm, onCancel, danger) {
     var isDanger = (danger !== false);
-    var body     = '<p style="color:var(--text-muted);font-size:14px;line-height:1.6;">' + message + '</p>';
-    var footer   =
-      '<button class="btn btn-ghost" onclick="AppService.closeModal()">' +
-        (onCancel ? 'Cancel' : 'Cancel') +
-      '</button>' +
+    var body   = '<p style="color:var(--text-muted);font-size:14px;line-height:1.6;">' + message + '</p>';
+    var footer =
+      '<button class="btn btn-ghost" onclick="AppService.closeModal()">Cancel</button>' +
       '<button class="btn ' + (isDanger ? 'btn-danger' : 'btn-primary') + '" id="confirmOkBtn">Confirm</button>';
-
     openModal('Confirm', body, footer);
-
     setTimeout(function() {
       var btn = document.getElementById('confirmOkBtn');
-      if (btn) {
-        btn.addEventListener('click', function() {
-          closeModal();
-          if (typeof onConfirm === 'function') onConfirm();
-        });
-      }
+      if (btn) btn.addEventListener('click', function() {
+        closeModal();
+        if (typeof onConfirm === 'function') onConfirm();
+      });
     }, 50);
   }
 
@@ -345,8 +215,7 @@ var AppService = (function() {
       'Cancelled': 'badge-cancelled',
       'Completed': 'badge-completed'
     };
-    var cls = map[status] || 'badge-draft';
-    return '<span class="badge ' + cls + '">' + escapeHtml(String(status || '—')) + '</span>';
+    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + escapeHtml(String(status || '—')) + '</span>';
   }
 
   function vehicleStatusBadge(status) {
@@ -355,8 +224,7 @@ var AppService = (function() {
       'Under Repair': 'badge-repair',
       'Inactive':     'badge-inactive'
     };
-    var cls = map[status] || 'badge-draft';
-    return '<span class="badge ' + cls + '">' + escapeHtml(String(status || '—')) + '</span>';
+    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + escapeHtml(String(status || '—')) + '</span>';
   }
 
   function alertBadge(status) {
@@ -365,8 +233,7 @@ var AppService = (function() {
       'Due in 30 Days': 'badge-due',
       'Expired':        'badge-expired'
     };
-    var cls = map[status] || 'badge-draft';
-    return '<span class="badge ' + cls + '">' + escapeHtml(String(status || '—')) + '</span>';
+    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + escapeHtml(String(status || '—')) + '</span>';
   }
 
   // ── OPTIONS BUILDERS ────────────────────────────────────────
@@ -395,21 +262,10 @@ var AppService = (function() {
   function buildVehicleOptions(vehicles, selectedId) {
     return buildOptions(
       vehicles.map(function(v) {
-        return {
-          value: v['Vehicle ID'],
-          label: v['Plate Number'] + ' — ' + (v['Brand/Model'] || v['Vehicle Type'])
-        };
+        return { value: v['Vehicle ID'], label: v['Plate Number'] + ' — ' + (v['Brand/Model'] || v['Vehicle Type']) };
       }),
       selectedId
     );
-  }
-
-  function hasRole() {
-    if (!_currentUser) return false;
-    for (var i = 0; i < arguments.length; i++) {
-      if (_currentUser['Role'] === arguments[i]) return true;
-    }
-    return false;
   }
 
   function escapeHtml(str) {
@@ -433,12 +289,10 @@ var AppService = (function() {
   // ── PUBLIC API ───────────────────────────────────────────────
   return {
     init                 : init,
-    loginUser            : loginUser,
-    retryLoadEmployees   : retryLoadEmployees,
-    logout               : logout,
     getCurrentUser       : getCurrentUser,
     getAppData           : getAppData,
     refreshAppData       : refreshAppData,
+    hasRole              : hasRole,
     navigate             : navigate,
     toggleSidebar        : toggleSidebar,
     openModal            : openModal,
@@ -455,7 +309,6 @@ var AppService = (function() {
     buildOptions         : buildOptions,
     buildEmployeeOptions : buildEmployeeOptions,
     buildVehicleOptions  : buildVehicleOptions,
-    hasRole              : hasRole,
     escapeHtml           : escapeHtml
   };
 
