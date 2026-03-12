@@ -5,8 +5,8 @@
 
 var AppService = (function() {
 
+  // ── STATE ──────────────────────────────────────────────────
   var _appData     = null;
-  var _appReady    = false;   // true only after getAppData() succeeds
   var _currentPage = null;
 
   // ── INIT ───────────────────────────────────────────────────
@@ -25,9 +25,9 @@ var AppService = (function() {
     }
   }
 
-  // ── LOAD APP DATA ──────────────────────────────────────────
+  // ── LOAD APP DATA & GO TO DASHBOARD ────────────────────────
   function _loadAppData() {
-    showLoader('Connecting...');
+    showLoader('Loading...');
     google.script.run
       .withSuccessHandler(function(data) {
         hideLoader();
@@ -35,8 +35,7 @@ var AppService = (function() {
           showToast('Failed to load app data. Please refresh.', 'error');
           return;
         }
-        _appData  = data;
-        _appReady = true;
+        _appData = data;
         navigate('dashboard');
       })
       .withFailureHandler(function(err) {
@@ -46,14 +45,17 @@ var AppService = (function() {
       .getAppData();
   }
 
-  function getAppData()     { return _appData; }
-  function isReady()        { return _appReady; }
+  function getAppData() { return _appData; }
 
+  // Stub — no user needed, return a generic Admin object
   function getCurrentUser() {
     return { 'Employee ID': 'EMP-000', 'Employee Name': 'Admin', 'Role': 'Admin' };
   }
 
-  function hasRole() { return true; }
+  function hasRole() {
+    // No login — everyone has access to everything
+    return true;
+  }
 
   function refreshAppData() {
     google.script.run
@@ -66,12 +68,6 @@ var AppService = (function() {
 
   // ── NAVIGATION ─────────────────────────────────────────────
   function navigate(page) {
-    // Guard: if app not ready yet, wait and retry
-    if (!_appReady) {
-      showToast('Please wait, app is still loading...', 'info');
-      return;
-    }
-
     var pages = document.querySelectorAll('.page');
     for (var i = 0; i < pages.length; i++) {
       pages[i].classList.add('hidden');
@@ -104,22 +100,16 @@ var AppService = (function() {
 
     _currentPage = page;
 
-    try {
-      if (page === 'dashboard'     && typeof DashboardService     !== 'undefined') DashboardService.load();
-      if (page === 'trips'         && typeof TripsService         !== 'undefined') TripsService.load();
-      if (page === 'approval'      && typeof ApprovalService      !== 'undefined') ApprovalService.load();
-      if (page === 'completion'    && typeof CompletionService    !== 'undefined') CompletionService.load();
-      if (page === 'vehicles'      && typeof VehiclesService      !== 'undefined') VehiclesService.load();
-      if (page === 'renewalAlerts' && typeof RenewalAlertsService !== 'undefined') RenewalAlertsService.load();
-      if (page === 'reports'       && typeof ReportsService       !== 'undefined') ReportsService.load();
-    } catch(e) {
-      console.error('Error loading page ' + page + ':', e);
-      showToast('Error loading page: ' + e.message, 'error');
-    }
+    if (page === 'dashboard'     && typeof DashboardService     !== 'undefined') DashboardService.load();
+    if (page === 'trips'         && typeof TripsService         !== 'undefined') TripsService.load();
+    if (page === 'approval'      && typeof ApprovalService      !== 'undefined') ApprovalService.load();
+    if (page === 'completion'    && typeof CompletionService    !== 'undefined') CompletionService.load();
+    if (page === 'vehicles'      && typeof VehiclesService      !== 'undefined') VehiclesService.load();
+    if (page === 'renewalAlerts' && typeof RenewalAlertsService !== 'undefined') RenewalAlertsService.load();
+    if (page === 'reports'       && typeof ReportsService       !== 'undefined') ReportsService.load();
 
     if (window.innerWidth <= 768) {
-      var sb = document.getElementById('sidebar');
-      if (sb) sb.classList.add('collapsed');
+      document.getElementById('sidebar').classList.add('collapsed');
     }
   }
 
@@ -149,18 +139,22 @@ var AppService = (function() {
   function showToast(message, type, duration) {
     type     = type     || 'info';
     duration = duration || 3500;
+
     var icons = {
       success: 'fa-circle-check',
       error:   'fa-circle-xmark',
       warning: 'fa-triangle-exclamation',
       info:    'fa-circle-info'
     };
+
     var toast = document.createElement('div');
-    toast.className = 'toast toast-' + type;
+    toast.className = 'toast toast-' + (type === 'error' ? 'error' : type);
     toast.innerHTML =
       '<i class="fas ' + (icons[type] || icons.info) + ' toast-icon"></i>' +
       '<span>' + message + '</span>';
+
     document.getElementById('toastContainer').appendChild(toast);
+
     setTimeout(function() {
       toast.style.opacity    = '0';
       toast.style.transition = 'opacity 0.3s';
@@ -295,7 +289,6 @@ var AppService = (function() {
   // ── PUBLIC API ───────────────────────────────────────────────
   return {
     init                 : init,
-    isReady              : isReady,
     getCurrentUser       : getCurrentUser,
     getAppData           : getAppData,
     refreshAppData       : refreshAppData,
