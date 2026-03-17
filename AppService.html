@@ -1,13 +1,11 @@
 <script>
 // ============================================================
 // AppService.html — Core Application Service
-// Save this file as: AppService.html in Apps Script
 // ============================================================
 
 var AppService = (function() {
 
   // ── STATE ──────────────────────────────────────────────────
-  var _currentUser = null;
   var _appData     = null;
   var _currentPage = null;
 
@@ -15,7 +13,7 @@ var AppService = (function() {
   function init() {
     _updateTopbarDate();
     setInterval(_updateTopbarDate, 60000);
-    _loadEmployeesForSplash();
+    _loadAppData();
   }
 
   function _updateTopbarDate() {
@@ -27,106 +25,79 @@ var AppService = (function() {
     }
   }
 
-  // ── SPLASH / LOGIN ─────────────────────────────────────────
-  function _loadEmployeesForSplash() {
+  // ── LOAD APP DATA & GO TO DASHBOARD ────────────────────────
+  function _loadAppData() {
     showLoader('Loading...');
     google.script.run
       .withSuccessHandler(function(data) {
         hideLoader();
-        if (!data.success) {
-          showToast('Failed to load employee data.', 'error');
+        if (!data || !data.success) {
+          var msg = (data && data.message) ? data.message : 'Unknown error.';
+          showToast('Failed to load: ' + msg, 'error');
+          // Show error screen with retry button on dashboard
+          var target = document.getElementById('page-dashboard');
+          if (target) {
+            target.innerHTML =
+              '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;gap:16px;">' +
+                '<i class="fas fa-database" style="font-size:48px;color:var(--text-dim);"></i>' +
+                '<div style="color:var(--text-muted);font-size:16px;">Failed to connect to database</div>' +
+                '<div style="color:var(--text-dim);font-size:13px;max-width:400px;text-align:center;padding:0 20px;">' + msg + '</div>' +
+                '<button class="btn btn-primary" onclick="AppService.retryLoad()">' +
+                  '<i class="fas fa-rotate-right"></i> Retry Connection' +
+                '</button>' +
+              '</div>';
+            target.classList.remove('hidden');
+          }
           return;
         }
         _appData = data;
-        var sel = document.getElementById('userSelect');
-        data.employees.forEach(function(emp) {
-          var opt = document.createElement('option');
-          opt.value       = emp['Employee ID'];
-          opt.textContent = emp['Employee Name'] + ' (' + emp['Role'] + ')';
-          sel.appendChild(opt);
-        });
+        navigate('dashboard');
       })
       .withFailureHandler(function(err) {
         hideLoader();
-        showToast('Connection error: ' + err.message, 'error');
+        var msg = (err && err.message) ? err.message : 'Connection error';
+        showToast('Connection error: ' + msg, 'error');
+        var target = document.getElementById('page-dashboard');
+        if (target) {
+          target.innerHTML =
+            '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;gap:16px;">' +
+              '<i class="fas fa-plug-circle-xmark" style="font-size:48px;color:var(--text-dim);"></i>' +
+              '<div style="color:var(--text-muted);font-size:16px;">Connection Error</div>' +
+              '<div style="color:var(--text-dim);font-size:13px;max-width:400px;text-align:center;padding:0 20px;">' + msg + '</div>' +
+              '<button class="btn btn-primary" onclick="AppService.retryLoad()">' +
+                '<i class="fas fa-rotate-right"></i> Retry Connection' +
+              '</button>' +
+            '</div>';
+          target.classList.remove('hidden');
+        }
       })
       .getAppData();
   }
 
-  function loginUser() {
-    var sel = document.getElementById('userSelect');
-    var err = document.getElementById('splashError');
-    if (!sel.value) {
-      err.classList.remove('hidden');
-      return;
-    }
-    err.classList.add('hidden');
-
-    var emp = null;
-    for (var i = 0; i < _appData.employees.length; i++) {
-      if (String(_appData.employees[i]['Employee ID']) === String(sel.value)) {
-        emp = _appData.employees[i];
-        break;
-      }
-    }
-
-    if (!emp) {
-      showToast('Employee not found.', 'error');
-      return;
-    }
-
-    _currentUser = emp;
-    _renderUserUI();
-    _applyRoleVisibility();
-    document.getElementById('splashScreen').classList.add('hidden');
-    document.getElementById('mainApp').classList.remove('hidden');
-    navigate('dashboard');
+  // ── RETRY (called by retry button) ─────────────────────────
+  function retryLoad() {
+    // Reset dashboard content before retrying
+    var target = document.getElementById('page-dashboard');
+    if (target) target.innerHTML = '';
+    _loadAppData();
   }
 
-  function logout() {
-    _currentUser = null;
-    _currentPage = null;
-    document.getElementById('mainApp').classList.add('hidden');
-    document.getElementById('splashScreen').classList.remove('hidden');
-    document.getElementById('userSelect').value = '';
+  function getAppData() { return _appData; }
+
+  // Stub — no user needed, return a generic Admin object
+  function getCurrentUser() {
+    return { 'Employee ID': 'EMP-000', 'Employee Name': 'Admin', 'Role': 'Admin' };
   }
 
-  function _renderUserUI() {
-    var name    = _currentUser['Employee Name'] || '?';
-    var role    = _currentUser['Role']          || '—';
-    var words   = name.split(' ');
-    var initials = '';
-    for (var i = 0; i < Math.min(words.length, 2); i++) {
-      if (words[i]) initials += words[i][0].toUpperCase();
-    }
-
-    document.getElementById('sidebarAvatar').textContent   = initials;
-    document.getElementById('sidebarUserName').textContent = name;
-    document.getElementById('sidebarUserRole').textContent = role;
-    document.getElementById('topbarAvatar').textContent    = initials;
-    document.getElementById('topbarUserName').textContent  = name;
+  function hasRole() {
+    // No login — everyone has access to everything
+    return true;
   }
-
-  function _applyRoleVisibility() {
-    var role  = _currentUser['Role'];
-    var items = document.querySelectorAll('.nav-item-role');
-    for (var i = 0; i < items.length; i++) {
-      var roles = (items[i].dataset.roles || '').split(',');
-      var found = false;
-      for (var j = 0; j < roles.length; j++) {
-        if (roles[j].trim() === role) { found = true; break; }
-      }
-      items[i].style.display = found ? '' : 'none';
-    }
-  }
-
-  function getCurrentUser() { return _currentUser; }
-  function getAppData()     { return _appData; }
 
   function refreshAppData() {
     google.script.run
       .withSuccessHandler(function(data) {
-        if (data.success) _appData = data;
+        if (data && data.success) _appData = data;
       })
       .withFailureHandler(function() {})
       .getAppData();
@@ -166,7 +137,6 @@ var AppService = (function() {
 
     _currentPage = page;
 
-    // Fire page load functions
     if (page === 'dashboard'     && typeof DashboardService     !== 'undefined') DashboardService.load();
     if (page === 'trips'         && typeof TripsService         !== 'undefined') TripsService.load();
     if (page === 'approval'      && typeof ApprovalService      !== 'undefined') ApprovalService.load();
@@ -175,7 +145,6 @@ var AppService = (function() {
     if (page === 'renewalAlerts' && typeof RenewalAlertsService !== 'undefined') RenewalAlertsService.load();
     if (page === 'reports'       && typeof ReportsService       !== 'undefined') ReportsService.load();
 
-    // Close sidebar on mobile
     if (window.innerWidth <= 768) {
       document.getElementById('sidebar').classList.add('collapsed');
     }
@@ -192,11 +161,8 @@ var AppService = (function() {
     document.getElementById('modalBody').innerHTML     = bodyHtml;
     document.getElementById('modalFooter').innerHTML   = footerHtml || '';
     var box = document.getElementById('modalBox');
-    if (large) {
-      box.classList.add('modal-lg');
-    } else {
-      box.classList.remove('modal-lg');
-    }
+    if (large) { box.classList.add('modal-lg'); }
+    else        { box.classList.remove('modal-lg'); }
     document.getElementById('globalModal').classList.remove('hidden');
   }
 
@@ -246,46 +212,38 @@ var AppService = (function() {
   // ── CONFIRM ─────────────────────────────────────────────────
   function confirm(message, onConfirm, onCancel, danger) {
     var isDanger = (danger !== false);
-    var body     = '<p style="color:var(--text-muted);font-size:14px;line-height:1.6;">' + message + '</p>';
-    var footer   =
+    var body   = '<p style="color:var(--text-muted);font-size:14px;line-height:1.6;">' + message + '</p>';
+    var footer =
       '<button class="btn btn-ghost" onclick="AppService.closeModal()">Cancel</button>' +
       '<button class="btn ' + (isDanger ? 'btn-danger' : 'btn-primary') + '" id="confirmOkBtn">Confirm</button>';
-
-    openModal('Confirm Action', body, footer);
-
+    openModal('Confirm', body, footer);
     setTimeout(function() {
       var btn = document.getElementById('confirmOkBtn');
-      if (btn) {
-        btn.addEventListener('click', function() {
-          closeModal();
-          if (onConfirm) onConfirm();
-        });
-      }
+      if (btn) btn.addEventListener('click', function() {
+        closeModal();
+        if (typeof onConfirm === 'function') onConfirm();
+      });
     }, 50);
   }
 
-  // ── HELPERS ─────────────────────────────────────────────────
+  // ── DATE FORMATTERS ─────────────────────────────────────────
   function formatDate(val) {
     if (!val) return '—';
     var d = new Date(val);
     if (isNaN(d.getTime())) return String(val);
-    return d.toLocaleDateString('en-PH', {
-      year: 'numeric', month: 'short', day: 'numeric'
-    });
+    return d.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
   function formatDateTime(val) {
     if (!val) return '—';
     var d = new Date(val);
     if (isNaN(d.getTime())) return String(val);
-    return d.toLocaleString('en-PH', {
-      year: 'numeric', month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    });
+    return d.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }) +
+      ' ' + d.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
   }
 
+  // ── BADGES ──────────────────────────────────────────────────
   function statusBadge(status) {
-    if (!status) return '—';
     var map = {
       'Draft':     'badge-draft',
       'Submitted': 'badge-submitted',
@@ -294,35 +252,33 @@ var AppService = (function() {
       'Cancelled': 'badge-cancelled',
       'Completed': 'badge-completed'
     };
-    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + status + '</span>';
+    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + escapeHtml(String(status || '—')) + '</span>';
   }
 
   function vehicleStatusBadge(status) {
-    if (!status) return '—';
     var map = {
       'Active':       'badge-active',
       'Under Repair': 'badge-repair',
       'Inactive':     'badge-inactive'
     };
-    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + status + '</span>';
+    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + escapeHtml(String(status || '—')) + '</span>';
   }
 
   function alertBadge(status) {
-    if (!status) return '—';
     var map = {
       'OK':             'badge-ok',
       'Due in 30 Days': 'badge-due',
       'Expired':        'badge-expired'
     };
-    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + status + '</span>';
+    return '<span class="badge ' + (map[status] || 'badge-draft') + '">' + escapeHtml(String(status || '—')) + '</span>';
   }
 
-  function buildOptions(arr, selectedVal, placeholder) {
-    placeholder = placeholder || '— Select —';
-    var html = '<option value="">' + placeholder + '</option>';
-    for (var i = 0; i < arr.length; i++) {
-      var item     = arr[i];
-      var val      = (item.value !== undefined) ? item.value : item;
+  // ── OPTIONS BUILDERS ────────────────────────────────────────
+  function buildOptions(items, selectedVal) {
+    var html = '';
+    for (var i = 0; i < items.length; i++) {
+      var item     = items[i];
+      var val      = (item && item.value !== undefined) ? item.value : item;
       var label    = item.label || item.value || item;
       var selected = String(val) === String(selectedVal || '') ? ' selected' : '';
       html += '<option value="' + escapeHtml(String(val)) + '"' + selected + '>' + escapeHtml(String(label)) + '</option>';
@@ -343,21 +299,10 @@ var AppService = (function() {
   function buildVehicleOptions(vehicles, selectedId) {
     return buildOptions(
       vehicles.map(function(v) {
-        return {
-          value: v['Vehicle ID'],
-          label: v['Plate Number'] + ' — ' + (v['Brand/Model'] || v['Vehicle Type'])
-        };
+        return { value: v['Vehicle ID'], label: v['Plate Number'] + ' — ' + (v['Brand/Model'] || v['Vehicle Type']) };
       }),
       selectedId
     );
-  }
-
-  function hasRole() {
-    if (!_currentUser) return false;
-    for (var i = 0; i < arguments.length; i++) {
-      if (_currentUser['Role'] === arguments[i]) return true;
-    }
-    return false;
   }
 
   function escapeHtml(str) {
@@ -372,7 +317,6 @@ var AppService = (function() {
 
   // ── BOOT ────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function() {
-    // Close modal on overlay click
     document.getElementById('globalModal').addEventListener('click', function(e) {
       if (e.target === this) closeModal();
     });
@@ -381,30 +325,29 @@ var AppService = (function() {
 
   // ── PUBLIC API ───────────────────────────────────────────────
   return {
-    init           : init,
-    loginUser      : loginUser,
-    logout         : logout,
-    getCurrentUser : getCurrentUser,
-    getAppData     : getAppData,
-    refreshAppData : refreshAppData,
-    navigate       : navigate,
-    toggleSidebar  : toggleSidebar,
-    openModal      : openModal,
-    closeModal     : closeModal,
-    confirm        : confirm,
-    showToast      : showToast,
-    showLoader     : showLoader,
-    hideLoader     : hideLoader,
-    formatDate     : formatDate,
-    formatDateTime : formatDateTime,
-    statusBadge    : statusBadge,
-    vehicleStatusBadge : vehicleStatusBadge,
-    alertBadge     : alertBadge,
-    buildOptions   : buildOptions,
+    init                 : init,
+    getCurrentUser       : getCurrentUser,
+    getAppData           : getAppData,
+    refreshAppData       : refreshAppData,
+    retryLoad            : retryLoad,        // ← BAG-O NI
+    hasRole              : hasRole,
+    navigate             : navigate,
+    toggleSidebar        : toggleSidebar,
+    openModal            : openModal,
+    closeModal           : closeModal,
+    confirm              : confirm,
+    showToast            : showToast,
+    showLoader           : showLoader,
+    hideLoader           : hideLoader,
+    formatDate           : formatDate,
+    formatDateTime       : formatDateTime,
+    statusBadge          : statusBadge,
+    vehicleStatusBadge   : vehicleStatusBadge,
+    alertBadge           : alertBadge,
+    buildOptions         : buildOptions,
     buildEmployeeOptions : buildEmployeeOptions,
     buildVehicleOptions  : buildVehicleOptions,
-    hasRole        : hasRole,
-    escapeHtml     : escapeHtml
+    escapeHtml           : escapeHtml
   };
 
 })();

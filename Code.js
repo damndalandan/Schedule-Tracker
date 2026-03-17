@@ -12,7 +12,7 @@
 // Option B: Paste your Spreadsheet ID below if using
 //   a standalone script (not bound to a sheet).
 var CONFIG = {
-  SPREADSHEET_ID: '',   // ← Paste Sheet ID here if needed (Option B)
+  SPREADSHEET_ID: '1HigaSfRMDBEUbDGlSfA8L2foDTO4D_DShhd3QCL5tw4',   // ← Paste Sheet ID here if needed (Option B)
   SHEETS: {
     EMPLOYEES:      'Employees',
     VEHICLES:       'Vehicles',
@@ -591,33 +591,41 @@ function getReportExpiringDocuments() {
 // ── BULK DATA LOADER ─────────────────────────────────────────
 function getAppData() {
   try {
-    var ss = _getSS();
+    var ss;
+    try {
+      ss = _getSS();
+    } catch (ssErr) {
+      Logger.log('_getSS() failed: ' + ssErr.message);
+      return { success: false, message: 'Cannot open spreadsheet: ' + ssErr.message };
+    }
 
     // Auto-initialize any missing sheets
-    if (!ss.getSheetByName(CONFIG.SHEETS.EMPLOYEES))      _setupEmployeesSheet(ss);
-    if (!ss.getSheetByName(CONFIG.SHEETS.VEHICLES))       _setupVehiclesSheet(ss);
-    if (!ss.getSheetByName(CONFIG.SHEETS.TRIPS))          _setupTripsSheet(ss);
-    if (!ss.getSheetByName(CONFIG.SHEETS.SETTINGS))       _setupSettingsSheet(ss);
-    if (!ss.getSheetByName(CONFIG.SHEETS.RENEWAL_ALERTS)) _setupRenewalAlertsSheet(ss);
+    try {
+      if (!ss.getSheetByName(CONFIG.SHEETS.EMPLOYEES))      _setupEmployeesSheet(ss);
+      if (!ss.getSheetByName(CONFIG.SHEETS.VEHICLES))       _setupVehiclesSheet(ss);
+      if (!ss.getSheetByName(CONFIG.SHEETS.TRIPS))          _setupTripsSheet(ss);
+      if (!ss.getSheetByName(CONFIG.SHEETS.SETTINGS))       _setupSettingsSheet(ss);
+      if (!ss.getSheetByName(CONFIG.SHEETS.RENEWAL_ALERTS)) _setupRenewalAlertsSheet(ss);
+    } catch (initErr) {
+      Logger.log('Sheet init failed: ' + initErr.message);
+    }
 
-    var employees = getEmployees();
-    var vehicles  = getActiveVehicles();
-    var settings  = getSettings();
+    var employees = [];
+    var vehicles  = [];
+    var settings  = {};
 
-    // If employees sheet exists but is empty, seed it
+    try { employees = getEmployees(); }    catch(e) { Logger.log('getEmployees error: ' + e.message); }
+    try { vehicles  = getActiveVehicles(); } catch(e) { Logger.log('getActiveVehicles error: ' + e.message); }
+    try { settings  = getSettings(); }    catch(e) { Logger.log('getSettings error: ' + e.message); }
+
     if (employees.length === 0) {
-      _setupEmployeesSheet(ss);
-      employees = getEmployees();
+      try { _setupEmployeesSheet(ss); employees = getEmployees(); } catch(e) {}
     }
-    // Same for settings
     if (Object.keys(settings).length === 0) {
-      _setupSettingsSheet(ss);
-      settings = getSettings();
+      try { _setupSettingsSheet(ss); settings = getSettings(); } catch(e) {}
     }
-    // Same for vehicles
     if (vehicles.length === 0) {
-      _setupVehiclesSheet(ss);
-      vehicles = getActiveVehicles();
+      try { _setupVehiclesSheet(ss); vehicles = getActiveVehicles(); } catch(e) {}
     }
 
     return {
@@ -627,6 +635,7 @@ function getAppData() {
       settings:  settings
     };
   } catch (e) {
+    Logger.log('getAppData FATAL: ' + e.message);
     return { success: false, message: 'getAppData error: ' + e.message };
   }
 }
